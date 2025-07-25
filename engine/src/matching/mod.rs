@@ -1,0 +1,288 @@
+use std::{collections::HashMap, sync::Mutex, str::FromStr};
+
+use enum_stringify::EnumStringify;
+use once_cell::sync::Lazy;
+use rust_decimal::Decimal;
+use scylla::{ SerializeRow};
+use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
+
+
+
+
+
+pub type Id = u64;
+pub type Price = Decimal;
+pub type Symbol = String;
+pub type OrderId = u64;
+pub type Quantity = u64;
+pub type TradeId = u64;
+
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct User {
+    pub id: Id,
+    pub balance: HashMap<Asset, Quantity>,
+    pub locked_balance: HashMap<Asset, Quantity>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Users {
+    pub users: HashMap<Id, User>,
+}
+
+pub static USERS: Lazy<Mutex<Users>> = Lazy::new(|| {
+    Mutex::new(Users {
+        users: HashMap::new(),
+    })
+});
+
+
+#[derive(Debug, Clone, Deserialize, Serialize, Hash, PartialEq, Eq, EnumIter, EnumStringify)]
+pub enum Asset {
+    USDC,
+    BTC,
+    SOL,
+    ETH
+}
+
+
+impl Asset {
+    pub fn from_str(asset_to_match: &str) -> Option<Self> {
+
+        for asset in Asset::iter() {
+            let current_asset = asset.to_string();
+            if asset_to_match.to_string() == current_asset {
+                return Some(asset);
+            }
+        }
+        None
+    }
+}
+
+
+#[derive(Debug, Clone, Deserialize, Serialize, EnumIter, EnumStringify)]
+pub enum OrderType {
+    Market,
+    Limit
+}
+
+
+impl OrderType {
+    pub fn from_str(asset_to_match: &str) -> Result<Self, ()> {
+        for asset in OrderType::iter() {
+            let current_asset = asset.to_string();
+            if asset_to_match.to_string() == current_asset {
+                return Ok(asset);
+            }
+        }
+        Err(())
+    }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize, EnumStringify, EnumIter)]
+pub enum OrderSide {
+    Bid,
+    Ask
+}
+
+impl OrderSide {
+    pub fn from_str(side_to_match: &str) -> Result<Self, ()> {
+        for side in OrderSide::iter() {
+            let current_side = side.to_string();
+            if side_to_match.to_string() == current_side {
+                return Ok(side);
+            }
+        }
+        Err(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, EnumStringify)]
+pub enum RegisteredSymbols {
+    SOL_USDT,
+    BTC_USDT,
+    ETH_USDT
+}
+
+
+
+#[derive(Debug, Deserialize, Serialize, SerializeRow)]
+pub struct ScyllaOrder {
+    pub id: i64,
+    pub user_id: i64,
+    pub symbol: String,
+    pub price: String,
+    pub initial_quantity: String,
+    pub filled_quantity: String,
+    pub quote_quantity: String,
+    pub filled_quote_quantity: String,
+    pub order_type: String,
+    pub order_side: String,
+    pub order_status: String,
+    pub timestamp: i64
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, SerializeRow)]
+pub struct ScyllaUser {
+    pub id: i64,
+    pub balance: HashMap<String, String>,
+    pub locked_balance: HashMap<String, String>,
+}
+
+
+#[derive(Debug, Deserialize, Serialize, SerializeRow)]
+pub struct ScyllaCancelOrder {
+    pub id: i64,
+    pub user_id: i64,
+    pub order_side: String,
+    pub symbol: String,
+    pub price: String,
+    pub timestamp: i64,
+}
+
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RecievedOrder {
+    pub id: i64,
+    pub user_id: i64,
+    pub symbol: Symbol,
+    pub price: Price,
+    pub initial_quantity: Quantity,
+    pub filled_quantity: Quantity,
+    pub quote_quantity: Quantity,
+    pub filled_quote_quantity: Quantity,
+    pub order_type: OrderType,
+    pub order_side: OrderSide,
+    pub order_status: OrderStatus,
+    pub timestamp: i64,
+}
+
+
+
+
+#[derive(Debug, Clone, Deserialize, Serialize, EnumIter, EnumStringify)]
+pub enum OrderStatus {
+    InProgress,
+    Filled,
+    PartiallyFilled,
+    Cancelled
+}
+
+
+impl OrderStatus {
+    pub fn from_str(status_to_match: &str) -> Result<Self, ()> {
+        for status in OrderStatus::iter() {
+            let current_status = status.to_string();
+            if status_to_match.to_string() == current_status {
+                return Ok(status);
+            }
+        }
+        Err(())
+    }
+}
+
+
+impl RecievedOrder {
+    fn to_scylla_order(&self) -> ScyllaOrder {
+        ScyllaOrder {
+            id: self.id,
+            user_id: self.user_id,
+            symbol: self.symbol.to_string(),
+            price: self.price.to_string(),
+            initial_quantity: self.initial_quantity.to_string(),
+            filled_quantity: self.filled_quantity.to_string(),
+            quote_quantity: self.quote_quantity.to_string(),
+            filled_quote_quantity: self.filled_quote_quantity.to_string(),
+            order_type: self.order_type.to_string(),
+            order_side: self.order_side.to_string(),
+            order_status: self.order_status.to_string(),
+            timestamp: self.timestamp,
+        }
+    }
+}
+
+
+impl ScyllaOrder {
+    fn from_scylla_order(&self) -> RecievedOrder {
+        RecievedOrder {
+            id: self.id,
+            user_id: self.user_id,
+            symbol: self.symbol.clone(),
+            price: Decimal::from_str(&self.price).unwrap(),
+            initial_quantity: self.initial_quantity.parse::<u64>().unwrap(),
+            filled_quantity: self.filled_quantity.parse::<u64>().unwrap(),
+            quote_quantity: self.quote_quantity.parse::<u64>().unwrap(),
+            filled_quote_quantity: self.filled_quote_quantity.parse::<u64>().unwrap(),
+            order_type: OrderType::from_str(&self.order_type).unwrap(),
+            order_side: OrderSide::from_str(&self.order_side).unwrap(),
+            order_status: OrderStatus::from_str(&self.order_status).unwrap(),
+            timestamp: self.timestamp,
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Deserialize, Serialize, Eq, Hash, PartialEq)]
+pub struct Exchange {
+    pub base: Asset,
+    pub quote: Asset,
+    pub symbol: Symbol,
+}
+
+#[derive(Debug, Serialize)]
+pub enum SymbolError{
+    InvalidSymbol
+}
+
+
+impl Exchange {
+    pub fn new(base: Asset, quote: Asset) -> Exchange {
+        let base_str = base.to_string();
+        let quote_str = quote.to_string();
+        let symbol = format!("{}_{}", base_str, quote_str);
+        Exchange {
+            base,
+            quote,
+            symbol,
+        }
+    }
+
+    pub fn from_str(symbol: &str) -> Result<Exchange, SymbolError> {
+        let parts: Vec<&str> = symbol.split('_').collect();
+        if parts.len() != 2 {
+            return Err(SymbolError::InvalidSymbol);
+        }
+        let base = Asset::from_str(parts[0]).ok_or(SymbolError::InvalidSymbol)?;
+        let quote = Asset::from_str(parts[1]).ok_or(SymbolError::InvalidSymbol)?;
+        Ok(Exchange::new(base, quote))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OrderUpdate {
+    order_id: u64,
+    client_order_id: u64,
+    trade_id: u64,
+    user_id: u64,
+    trade_timestamp: u128,
+    order_side: OrderSide,
+    order_status: OrderStatus,
+    symbol: String,
+    price: Decimal,
+    executed_quantity: Decimal,
+    executed_quote_quantity: Decimal,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Trade {
+    id: Id,
+    quantity: Quantity,
+    quote_quantity: Quantity,
+    is_buyer_maker: bool,
+    timestamp: u128,
+    price: Price,
+}

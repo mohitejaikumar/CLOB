@@ -1,0 +1,18 @@
+[package]
+edition = "2024"
+name = "engine"
+version = "0.1.0"
+
+[dependencies]
+actix-web.workspace = true
+dotenv.workspace = true
+enum_stringify.workspace = true
+once_cell.workspace = true
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true
+scylla.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
+tokio.workspace = true

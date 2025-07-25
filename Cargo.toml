@@ -1,0 +1,19 @@
+[workspace]
+
+members = ["engine"]
+resolver = "3"
+
+[workspace.dependencies]
+actix-web = "4.11.0"
+dotenv = "0.15.0"
+enum_stringify = "0.6.4"
+num-bigint = "0.4.6"
+once_cell = "1.21.3"
+rust_decimal = "1.37.2"
+rust_decimal_macros = "1.37.1"
+scylla = "1.3.0"
+serde = {version = "1.0.219", features = ["derive"]}
+serde_json = {version = "1.0.141", features = ["raw_value"]}
+strum = "0.27.2"
+strum_macros = "0.27.2"
+tokio = {version = "1.46.1", features = ["full"]}
