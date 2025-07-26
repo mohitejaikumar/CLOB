@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Mutex, str::FromStr};
 use enum_stringify::EnumStringify;
 use once_cell::sync::Lazy;
 use rust_decimal::Decimal;
-use scylla::{ client::session::Session, statement::batch::Batch, SerializeRow};
+use scylla::{ client::session::Session, statement::batch::Batch, DeserializeRow, SerializeRow};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -113,7 +113,7 @@ pub enum RegisteredSymbols {
 
 
 
-#[derive(Debug, Deserialize, Serialize, SerializeRow)]
+#[derive(Debug, Deserialize, Serialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaOrder {
     pub id: i64,
     pub user_id: i64,
@@ -137,7 +137,7 @@ pub struct ScyllaUser {
 }
 
 
-#[derive(Debug, Deserialize, Serialize, SerializeRow)]
+#[derive(Debug, Deserialize, Serialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaCancelOrder {
     pub id: i64,
     pub user_id: i64,
