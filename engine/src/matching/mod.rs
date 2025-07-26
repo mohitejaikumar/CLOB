@@ -3,11 +3,15 @@ use std::{collections::HashMap, sync::Mutex, str::FromStr};
 use enum_stringify::EnumStringify;
 use once_cell::sync::Lazy;
 use rust_decimal::Decimal;
-use scylla::{ SerializeRow};
+use scylla::{ client::session::Session, statement::batch::Batch, SerializeRow};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+pub mod orderbook;
+pub mod engine;
+pub mod user;
+pub mod error;
 
 
 
@@ -16,7 +20,7 @@ pub type Id = u64;
 pub type Price = Decimal;
 pub type Symbol = String;
 pub type OrderId = u64;
-pub type Quantity = u64;
+pub type Quantity = Decimal;
 pub type TradeId = u64;
 
 
@@ -62,7 +66,7 @@ impl Asset {
 }
 
 
-#[derive(Debug, Clone, Deserialize, Serialize, EnumIter, EnumStringify)]
+#[derive(Debug, Clone, Deserialize, Serialize, EnumIter, EnumStringify, PartialEq, Eq)]
 pub enum OrderType {
     Market,
     Limit
@@ -82,7 +86,7 @@ impl OrderType {
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize, EnumStringify, EnumIter)]
+#[derive(Debug, Clone, Serialize, Deserialize, EnumStringify, EnumIter, PartialEq, Eq)]
 pub enum OrderSide {
     Bid,
     Ask
@@ -212,10 +216,10 @@ impl ScyllaOrder {
             user_id: self.user_id,
             symbol: self.symbol.clone(),
             price: Decimal::from_str(&self.price).unwrap(),
-            initial_quantity: self.initial_quantity.parse::<u64>().unwrap(),
-            filled_quantity: self.filled_quantity.parse::<u64>().unwrap(),
-            quote_quantity: self.quote_quantity.parse::<u64>().unwrap(),
-            filled_quote_quantity: self.filled_quote_quantity.parse::<u64>().unwrap(),
+            initial_quantity: Decimal::from_str(&self.initial_quantity).unwrap(),
+            filled_quantity: Decimal::from_str(&self.filled_quantity).unwrap(),
+            quote_quantity: Decimal::from_str(&self.quote_quantity).unwrap(),
+            filled_quote_quantity: Decimal::from_str(&self.filled_quote_quantity).unwrap(),
             order_type: OrderType::from_str(&self.order_type).unwrap(),
             order_side: OrderSide::from_str(&self.order_side).unwrap(),
             order_status: OrderStatus::from_str(&self.order_status).unwrap(),
@@ -285,4 +289,70 @@ pub struct Trade {
     is_buyer_maker: bool,
     timestamp: u128,
     price: Price,
+}
+
+
+pub async fn new_order(
+    session: &Session,
+    order: RecievedOrder,
+    locked_balance: Quantity,
+    lock_asset: Asset
+) {
+
+    let new_order =
+        r#"
+        INSERT INTO keyspace_1.order_table (
+            id,
+            user_id,
+            symbol,
+            price,
+            initial_quantity,
+            filled_quantity,
+            quote_quantity,
+            filled_quote_quantity,
+            order_type,
+            order_side,
+            order_status,
+            timestamp
+        )  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    "#;
+
+    let lock_balance = 
+        r#"
+        UPDATE keyspace_1.user_table
+        SET
+            locked_balance[?] = ?
+        WHERE id = ?;
+    "#;
+    let mut batch: Batch = Default::default();
+    batch.append_statement(new_order);
+    batch.append_statement(lock_balance);
+    let prepared_batch: Batch = session.prepare_batch(&batch).await.unwrap();
+    
+    let order_value = order.to_scylla_order();
+    let user_value = (lock_asset.to_string(), locked_balance.to_string(), order.user_id as i64);
+
+    session.batch(&prepared_batch, (order_value, user_value)).await.unwrap();
+}
+
+
+#[derive(Debug, Serialize)]
+pub struct PostUsers {
+    pub user: User, // buyer
+    pub client: User // seller
+}
+
+#[derive(Debug, Serialize)]
+pub struct Filler {
+    trade_id: Id,
+    exchange: Exchange,
+    quantity: Quantity,
+    exchange_price: Price,
+    is_buyer_maker: bool,
+    post_users: PostUsers,
+    order_status: OrderStatus,
+    client_order_status: OrderStatus,
+    order_id: OrderId,
+    client_order_id: OrderId,
+    timestamp: u128,
 }
