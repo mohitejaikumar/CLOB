@@ -16,6 +16,31 @@ use crate::matching::error::MatchingEngineErrors;
 use super::*;
 
 
+
+impl ScyllaUser {
+    pub fn from_scylla_user(&self) -> User {
+        let mut balance_map: HashMap<Asset, Quantity> = HashMap::new();
+        for (asset_str, balance) in &self.balance {
+            let asset = Asset::from_str(&asset_str).unwrap();
+            let balance = Decimal::from_str(&balance).unwrap();
+            balance_map.insert(asset, balance);
+        }
+        let mut locked_balance_map: HashMap<Asset, Quantity> = HashMap::new();
+        for (asset_str, locked_balance) in &self.locked_balance {
+            let asset = Asset::from_str(&asset_str).unwrap();
+            let locked_balance = Decimal::from_str(&locked_balance).unwrap();
+            locked_balance_map.insert(asset, locked_balance);
+        }
+
+        User {
+            id: self.id as u64,
+            balance: balance_map,
+            locked_balance: locked_balance_map,
+        }
+    }
+}
+
+
 impl Users {
 
 

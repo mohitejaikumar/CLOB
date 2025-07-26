@@ -104,7 +104,7 @@ impl OrderSide {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, EnumStringify)]
+#[derive(Debug, Clone, Serialize, Deserialize, EnumStringify, EnumIter)]
 pub enum RegisteredSymbols {
     SOL_USDT,
     BTC_USDT,
@@ -129,7 +129,7 @@ pub struct ScyllaOrder {
     pub timestamp: i64
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, SerializeRow)]
+#[derive(Debug, Clone, Deserialize, Serialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaUser {
     pub id: i64,
     pub balance: HashMap<String, String>,

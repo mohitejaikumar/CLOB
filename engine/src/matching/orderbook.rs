@@ -1,8 +1,4 @@
 use std::{collections::HashMap, time::{SystemTime, UNIX_EPOCH}};
-
-
-
-
 use rust_decimal_macros::dec;
 use serde_json::to_string;
 
@@ -481,6 +477,28 @@ impl Orderbook {
                 }
             }
         }
+    }
+
+    pub fn get_quote(
+        &mut self,
+        order_side: &OrderSide,
+        mut order_quantity: Quantity
+    ) -> Result<Decimal, MatchingEngineErrors> {
+        let sorted_orders = match order_side {
+            OrderSide::Ask => Orderbook::bid_limits(&mut self.bids),
+            OrderSide::Bid => Orderbook::ask_limits(&mut self.asks),
+        };
+        let mut orderbook_quote = dec!(0);
+        for limit_order in sorted_orders {
+            let total_quantity = limit_order.total_volume();
+            if total_quantity >= order_quantity {
+                orderbook_quote += order_quantity * limit_order.price;
+                return Ok(orderbook_quote);
+            }
+            orderbook_quote += total_quantity * limit_order.price;
+            order_quantity -= total_quantity;
+        }
+        Err(MatchingEngineErrors::AskedMoreThanTradeable)
     }
 }
 
