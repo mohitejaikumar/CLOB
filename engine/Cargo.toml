@@ -8,6 +8,7 @@ actix-web.workspace = true
 dotenv.workspace = true
 enum_stringify.workspace = true
 once_cell.workspace = true
+redis.workspace = true
 rust_decimal.workspace = true
 rust_decimal_macros.workspace = true
 scylla.workspace = true
