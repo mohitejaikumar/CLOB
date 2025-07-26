@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+use crate::{PersistCancel, PersistCancelAll};
+
 pub mod orderbook;
 pub mod engine;
 pub mod user;
@@ -333,6 +335,109 @@ pub async fn new_order(
     let user_value = (lock_asset.to_string(), locked_balance.to_string(), order.user_id as i64);
 
     session.batch(&prepared_batch, (order_value, user_value)).await.unwrap();
+}
+
+
+pub async fn persist_order_cancel_all(session: &Session, cancel_order: PersistCancelAll) {
+    let new_cance_order =
+        r#"
+        INSERT INTO keyspace_1.cancel_order_table (
+            id,
+            user_id,
+            order_side,
+            symbol,
+            price,
+            timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?);
+        "#;
+    let unlock_balance =
+        r#"
+        UPDATE keyspace_1.user_table 
+        SET
+            locked_balance = ?
+        WHERE id = ?;
+        "#;
+    let update_order_status =
+        r#"
+        UPDATE keyspace_1.order_table 
+        SET
+            order_status = ?
+        WHERE id = ? AND symbol = ?;
+        "#;
+    for data in cancel_order.data {
+        session
+            .query_unpaged(new_cance_order, (
+                data.id as i64,
+                cancel_order.user_id as i64,
+                data.order_side.to_string(),
+                cancel_order.symbol.clone(),
+                data.price.to_string(),
+                cancel_order.timestamp,
+            )).await
+            .unwrap();
+        session
+            .query_unpaged(update_order_status, (
+                OrderStatus::Cancelled.to_string(),
+                data.id as i64,
+                cancel_order.symbol.clone(),
+            )).await
+            .unwrap();
+    }
+    session
+        .query_unpaged(unlock_balance, (cancel_order.locked_balances, cancel_order.user_id as i64)).await
+        .unwrap();
+}
+
+
+pub async fn persist_order_cancel(session: &Session, cancel_order: PersistCancel) {
+    let new_cance_order =
+        r#"
+        INSERT INTO keyspace_1.cancel_order_table (
+            id,
+            user_id,
+            order_side,
+            symbol,
+            price,
+            timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?);
+        "#;
+    let unlock_balance =
+        r#"
+        UPDATE keyspace_1.user_table 
+        SET
+            locked_balance[?] = ?
+        WHERE id = ?;
+        "#;
+    let update_order_status =
+        r#"
+        UPDATE keyspace_1.order_table 
+        SET
+            order_status = ?
+        WHERE id = ? AND symbol = ?;
+        "#;
+    let mut batch: Batch = Default::default();
+    batch.append_statement(new_cance_order);
+    batch.append_statement(unlock_balance);
+    batch.append_statement(update_order_status);
+    let prepared_batch: Batch = session.prepare_batch(&batch).await.unwrap();
+    session
+        .batch(&prepared_batch, (
+            (
+                cancel_order.id as i64,
+                cancel_order.user_id as i64,
+                cancel_order.order_side.to_string(),
+                cancel_order.symbol,
+                cancel_order.price.to_string(),
+                cancel_order.timestamp,
+            ),
+            (
+                cancel_order.asset.to_string(),
+                cancel_order.updated_locked_balance.to_string(),
+                cancel_order.user_id as i64,
+            ),
+            (OrderStatus::Cancelled.to_string(), cancel_order.id as i64),
+        )).await
+        .unwrap();
 }
 
 

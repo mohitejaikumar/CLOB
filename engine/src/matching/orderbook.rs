@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::{SystemTime, UNIX_EPOCH}};
 use rust_decimal_macros::dec;
 use serde_json::to_string;
 
-use crate::matching::error::MatchingEngineErrors;
+use crate::{matching::error::MatchingEngineErrors, EventTransmitter, RedisEmit};
 
 use super::*;
 
@@ -125,7 +125,7 @@ impl Orderbook {
         &mut self,
         mut order: Order,
         should_execute_trade: bool,
-        // redis trasmitter
+        event_tx: Option<EventTransmitter>
     ) -> (Decimal, Decimal, OrderStatus) {
         let sorted_orders = match order.order_side {
             OrderSide::Ask => Orderbook::bid_limits(&mut self.bids),
@@ -145,7 +145,7 @@ impl Orderbook {
                 price,
                 &mut self.trade_id,
                 should_execute_trade,
-                // redis tranmitter
+                event_tx.clone()
             );
             let executed_quantity_limit = order.initial_quantity - order.quantity;
             executed_quantity += executed_quantity_limit;
@@ -163,7 +163,7 @@ impl Orderbook {
         price: Price,
         mut order: Order,
         should_execute_trade: bool,
-        // redis transmitter
+        event_tx: Option<EventTransmitter>
     ) -> (Decimal, Decimal, OrderStatus) {
         println!("Recived an {} Limit order", order.order_side);
         let mut executed_quantity = dec!(0);
@@ -188,7 +188,7 @@ impl Orderbook {
                         price,
                         &mut self.trade_id,
                         should_execute_trade,
-                        // redis transmitter
+                        event_tx.clone()
                     );
                     let executed_quantity_limit = order.initial_quantity - order.quantity;
                     executed_quantity += executed_quantity_limit;
@@ -220,7 +220,7 @@ impl Orderbook {
                         price,
                         &mut self.trade_id,
                         should_execute_trade,
-                        // redis transmitter
+                        event_tx.clone()
                     );
                     let executed_quantity_limit = order.initial_quantity - order.quantity;
                     executed_quantity += executed_quantity_limit;
@@ -335,7 +335,7 @@ impl Orderbook {
         &mut self,
         recieved_order: RecievedOrder,
         order_id: OrderId,
-        // redis transmitter 
+        event_tx: EventTransmitter
     ) -> (Decimal, Decimal, OrderStatus) {
         let order = Order::new(
             order_id as u64,
@@ -347,9 +347,9 @@ impl Orderbook {
         );
         match recieved_order.order_type {
             // redis transmitter 
-            OrderType::Market => { self.fill_market_order(order, true) }
+            OrderType::Market => { self.fill_market_order(order, true, Some(event_tx)) }
             OrderType::Limit => {
-                self.fill_limit_order(recieved_order.price, order, true)
+                self.fill_limit_order(recieved_order.price, order, true, Some(event_tx))
             }
         }
     }
@@ -470,9 +470,9 @@ impl Orderbook {
                         replay_order.user_id as u64
                     );
                     let _ = match replay_order.order_type {
-                        OrderType::Market => self.fill_market_order(order, false),
+                        OrderType::Market => self.fill_market_order(order, false, None),
                         OrderType::Limit =>
-                            self.fill_limit_order(replay_order.price, order, false),
+                            self.fill_limit_order(replay_order.price, order, false, None),
                     };
                 }
             }
@@ -582,7 +582,7 @@ impl Limit {
         exchange_price: Price,
         mut trade_id: &mut u64,
         should_execute_trade: bool,
-        // TODO: introduce redis
+        event_tx: Option<EventTransmitter>
     ) -> Order {
         // move through the orders for self.price and fill the order
         let mut remaining_quantity = order.quantity.clone();
@@ -593,6 +593,7 @@ impl Limit {
                 break;
             }
             let limit_order = &mut self.orders[i];
+            let event_tx = event_tx.clone();
             // now two cases if current order.quantity is less than or greater_equal to
             match limit_order.quantity > remaining_quantity {
                 true => {
@@ -686,6 +687,32 @@ impl Limit {
                         let serialized_publish_trade = to_string(&publish_trade).unwrap();
 
                         // publish to redis 
+
+                        event_tx.unwrap().send(
+                            vec![
+                                RedisEmit {
+                                    cmd: "PUBLISH".to_string(),
+                                    arg_1: format!("order_update:{}", trade.exchange.symbol),
+                                    arg_2: serialized_order_update_1,
+                                },
+                                RedisEmit {
+                                    cmd: "PUBLISH".to_string(),
+                                    arg_1: format!("order_update:{}", trade.exchange.symbol),
+                                    arg_2: serialized_order_update_2,
+                                },
+
+                                RedisEmit {
+                                    cmd: "PUBLISH".to_string(),
+                                    arg_1: format!("trade:{}", trade.exchange.symbol),
+                                    arg_2: serialized_publish_trade,
+                                },
+                                RedisEmit {
+                                    cmd: "LPUSH".to_string(),
+                                    arg_1: "filler".to_string(),
+                                    arg_2: serialized_filler,
+                                }
+                            ]
+                        );
                     }
                 }
                 false => {
@@ -773,7 +800,32 @@ impl Limit {
                         let serialized_order_update_1 = to_string(&order_update_1).unwrap();
                         let serialized_order_update_2 = to_string(&order_update_2).unwrap();
                         let serialized_publish_trade = to_string(&publish_trade).unwrap();
-                        // publish to redis 
+                        // publish to mpsc channel
+                        event_tx.unwrap().send(
+                            vec![
+                                RedisEmit {
+                                    cmd: "LPUSH".to_string(),
+                                    arg_1: format!("order_update:{}", trade.exchange.symbol),
+                                    arg_2: serialized_order_update_1,
+                                },
+                                RedisEmit {
+                                    cmd: "PUBLISH".to_string(),
+                                    arg_1: format!("order_update:{}", trade.exchange.symbol),
+                                    arg_2: serialized_order_update_2,
+                                },
+
+                                RedisEmit {
+                                    cmd: "PUBLISH".to_string(),
+                                    arg_1: format!("trade:{}", trade.exchange.symbol),
+                                    arg_2: serialized_publish_trade,
+                                },
+                                RedisEmit {
+                                    cmd: "LPUSH".to_string(),
+                                    arg_1: "filler".to_string(),
+                                    arg_2: serialized_filler,
+                                }
+                            ]
+                        );
                     }
                     self.orders.remove(i);
                     continue;

@@ -8,7 +8,7 @@ use crate::matching::{error::MatchingEngineErrors, Asset, Id, Quantity, Users};
 
 
 
-
+#[derive(Debug, Serialize, Deserialize)]
 pub enum UserRequests {
     NewUser(NewUser),
     Deposit(Deposit),
