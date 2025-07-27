@@ -334,7 +334,7 @@ impl Orderbook {
     pub fn process_order(
         &mut self,
         recieved_order: RecievedOrder,
-        order_id: OrderId,
+        order_id: OrderId, 
         event_tx: EventTransmitter
     ) -> (Decimal, Decimal, OrderStatus) {
         let order = Order::new(

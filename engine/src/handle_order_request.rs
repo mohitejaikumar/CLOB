@@ -154,7 +154,7 @@ impl EngineRequests {
             timestamp: recieved_order.timestamp,
         };
         println!("Processed order in {} ms", start.elapsed().as_millis());
-        // relay the message to websockets
+        // relay the message to backend api 
         redis
             ::cmd("LPUSH")
             .arg(sub_id)
