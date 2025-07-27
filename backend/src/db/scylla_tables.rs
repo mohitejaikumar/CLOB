@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use scylla::SerializeRow;
+use scylla::{DeserializeRow, SerializeRow};
 use serde::{Deserialize, Serialize};
 
 use crate::db::ScyllaDb;
@@ -147,13 +147,13 @@ impl ScyllaDb {
 }
 
 
-#[derive(Debug, Clone, Deserialize, Serialize, SerializeRow)]
+#[derive(Debug, Clone, Deserialize, Serialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaUser {
     pub id: i64,
     pub balance: HashMap<String, String>,
     pub locked_balance: HashMap<String, String>,
 }
-#[derive(Debug, Serialize, Deserialize, SerializeRow)]
+#[derive(Debug, Serialize, Deserialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaTrade {
     pub id: i64,
     pub symbol: String,
@@ -164,7 +164,7 @@ pub struct ScyllaTrade {
     pub timestamp: i64,
 }
 
-#[derive(Debug, Deserialize, Serialize, SerializeRow)]
+#[derive(Debug, Deserialize, Serialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaTicker {
     pub symbol: String,
     pub base_volume: String,
@@ -176,7 +176,7 @@ pub struct ScyllaTicker {
     pub last_price: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, SerializeRow)]
+#[derive(Debug, Deserialize, Serialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaMarket {
     pub symbol: String,
     pub base: String,
