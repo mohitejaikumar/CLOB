@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use scylla::{DeserializeRow, SerializeRow};
 use serde::{Deserialize, Serialize};
 
+use crate::db::schema::OrderId;
 use crate::db::ScyllaDb;
 use crate::result::Result;
 
@@ -144,6 +145,23 @@ impl ScyllaDb {
         self.session.query_unpaged(create_ticker_table, &[]).await?;
         Ok(())
     }
+}
+
+
+#[derive(Debug, Deserialize, Serialize, SerializeRow, DeserializeRow)]
+pub struct ScyllaOrder {
+    pub id: OrderId,
+    pub user_id: i64,
+    pub symbol: String,
+    pub price: String,
+    pub initial_quantity: String,
+    pub filled_quantity: String,
+    pub quote_quantity: String,
+    pub filled_quote_quantity: String,
+    pub order_type: String,
+    pub order_side: String,
+    pub order_status: String,
+    pub timestamp: i64,
 }
 
 
