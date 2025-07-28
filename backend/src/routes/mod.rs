@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::schema::{Asset, Id, Order, OrderId, OrderSide, Quantity, Symbol};
 
 pub mod user;
+pub mod ping;
+pub mod trades;
 
 
 #[derive(Debug, Serialize, Deserialize)]
