@@ -6,6 +6,7 @@ use crate::db::schema::{Asset, Id, Order, OrderId, OrderSide, Quantity, Symbol};
 pub mod user;
 pub mod ping;
 pub mod trades;
+pub mod orders;
 
 
 #[derive(Debug, Serialize, Deserialize)]
