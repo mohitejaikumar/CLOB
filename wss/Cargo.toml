@@ -1,0 +1,16 @@
+[package]
+edition = "2024"
+name = "wss"
+version = "0.1.0"
+
+[dependencies]
+enum_stringify.workspace = true
+futures-util = "0.3.31"
+once_cell.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
+tokio-tungstenite = "0.27.0"
+tokio.workspace = true
