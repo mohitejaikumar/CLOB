@@ -1,22 +1,36 @@
 
 
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, thread};
 
 use serde_json::from_str;
 use tokio::{net::{TcpListener, TcpStream}, runtime::Runtime};
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use futures_util::{ StreamExt};
-use wss::{manager::UserManager, payload::{Event, Method, Payload}};
-
-
-
-
+use wss::{broadcasters::{depth::handle_brodcasting_depth, order_update::handle_order_update_stream, ticker::handle_brodcasting_ticker, trades::handle_broadcasting_trades}, manager::UserManager, payload::{Event, Method, Payload}};
 
 
 fn main() {
     let addr = "127.0.0.1:9000".to_string();
-    let runtime = Runtime::new().unwrap();
+    
+    let redis_client = redis::Client::open("redis://127.0.0.1/").expect("Could not create client");
+    let trade_con = redis_client.get_connection().expect("Could not get connection");
+    let ticker_con = redis_client.get_connection().expect("Could not get connection");
+    let depth_con = redis_client.get_connection().expect("Could not get connection");
+    let order_update_con = redis_client.get_connection().expect("Could not get connection");
+
     let user_manager = Arc::new(Mutex::new(UserManager::new()));
+    
+    let trade_user_manager = user_manager.clone();
+    let ticker_user_manager = user_manager.clone();
+    let depth_user_manager = user_manager.clone();
+    let order_update_user_manager = user_manager.clone();
+    
+    thread::spawn(handle_brodcasting_ticker(ticker_user_manager, ticker_con));
+    thread::spawn(handle_brodcasting_depth(depth_user_manager, depth_con));
+    thread::spawn(handle_order_update_stream(order_update_user_manager, order_update_con));
+    thread::spawn(handle_broadcasting_trades(trade_user_manager, trade_con));
+
+    let runtime = Runtime::new().unwrap();
     runtime.block_on( async move {
         // this is the guy who will accept the connection
         let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
@@ -72,6 +86,9 @@ async fn handle_stream(
                 }
                 Message::Close(_) => {
                     // handle the close logic 
+                    let mut manager = user_manager.lock().unwrap();
+                    manager.remove_user(user_addr.to_string());
+                    println!("WebSocket connection closed from: {}", user_addr);
                 }
                 _ => {}
             }

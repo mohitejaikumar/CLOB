@@ -1,17 +1,22 @@
 [package]
 edition = "2024"
-name = "wss"
+name = "archiever"
 version = "0.1.0"
+
+[[bin]]
+name = "archiever"
+path = "src/main.rs"
 
 [dependencies]
 enum_stringify.workspace = true
-futures-util = "0.3.31"
-once_cell.workspace = true
+futures.workspace = true
+redis.workspace = true
 rust_decimal.workspace = true
+rust_decimal_macros.workspace = true
+scylla.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true
 strum_macros.workspace = true
-tokio-tungstenite = "0.27.0"
 tokio.workspace = true
-redis.workspace = true
+uuid.workspace = true
