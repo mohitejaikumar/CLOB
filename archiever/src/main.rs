@@ -40,7 +40,6 @@ async fn main() {
                 }
             }
             Err(_) => {
- 
             }
         }
     }

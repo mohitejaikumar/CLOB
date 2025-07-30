@@ -63,7 +63,7 @@ impl Orderbook {
         bids: &mut HashMap<Price, Limit>
     ) -> Vec<&mut Limit> {
         let mut bids = bids.values_mut().collect::<Vec<&mut Limit>>();
-        bids.sort_by(|a, b| a.price.cmp(&b.price));
+        bids.sort_by(|a, b| b.price.cmp(&a.price));
         bids
     }
 
@@ -71,7 +71,7 @@ impl Orderbook {
         asks: &mut HashMap<Price, Limit>
     ) -> Vec<&mut Limit> {
         let mut asks = asks.values_mut().collect::<Vec<&mut Limit>>();
-        asks.sort_by(|a, b| b.price.cmp(&a.price));
+        asks.sort_by(|a, b| a.price.cmp(&b.price));
         asks
     }
 
@@ -188,7 +188,7 @@ impl Orderbook {
                         price,
                         &mut self.trade_id,
                         should_execute_trade,
-                        event_tx.clone()
+                        event_tx.clone() 
                     );
                     let executed_quantity_limit = order.initial_quantity - order.quantity;
                     executed_quantity += executed_quantity_limit;
