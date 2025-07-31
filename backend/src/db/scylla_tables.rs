@@ -14,6 +14,7 @@ impl ScyllaDb {
     pub async fn initialize(&self) -> Result<()> {
         self.create_keyspace().await?;
         self.create_user_table().await?;
+        self.create_order_table().await?;
         self.create_keyspace().await?;
         self.cancel_order_table().await?;
         self.create_trade_table().await?;
@@ -28,7 +29,7 @@ impl ScyllaDb {
         WITH REPLICATION =
         {
             'class' : 'NetworkTopologyStrategy',
-            'replication_factor' : 1
+            'replication_factor' : 2
         } AND TABLETS = {'enabled' : false}
         "#;
 

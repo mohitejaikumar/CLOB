@@ -861,12 +861,12 @@ pub fn exchange_balance(
     let mut users = USERS.lock().unwrap();
     users.unlock_amount(&exchange.base, user_id, quantity);
     users.withdraw(&exchange.base, quantity, user_id);
-    users.deposit(&exchange.base, quantity * exchange_price, user_id);
+    users.deposit(&exchange.quote, quantity * exchange_price, user_id);
 
 
     users.unlock_amount(&exchange.quote, client_user_id, quantity * exchange_price);
     users.withdraw(&exchange.quote, quantity * exchange_price, client_user_id);
-    users.deposit(&exchange.quote, quantity, client_user_id);
+    users.deposit(&exchange.base, quantity, client_user_id);
 
     let user = users.users.get(&user_id).unwrap().clone();
     let client = users.users.get(&client_user_id).unwrap().clone();

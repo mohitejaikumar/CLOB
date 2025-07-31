@@ -1,10 +1,7 @@
 use std::thread;
-
 use engine::{matching::{engine::MatchingEngine, Exchange, RegisteredSymbols}, process_order, process_user_request, TOKIO_RUNTIME};
 use scylla::client::session_builder::SessionBuilder;
 use strum::IntoEnumIterator;
-
-
 
 
 
