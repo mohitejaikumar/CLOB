@@ -108,7 +108,7 @@ impl MatchingEngine{
 
 fn setup_engine_and_users() -> (MatchingEngine, Exchange, Orderbook, Vec<Id>) { // pass redis connection as arg
     let mut engine = MatchingEngine::init();
-    let exchange = Exchange::new(Asset::SOL, Asset::USDC);
+    let exchange = Exchange::new(Asset::SOL, Asset::USDT);
     let mut orderbook = Orderbook::new(exchange.clone());
     engine.add_new_market(exchange.clone());
     

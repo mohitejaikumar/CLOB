@@ -29,8 +29,8 @@ impl ScyllaDb {
         WITH REPLICATION =
         {
             'class' : 'NetworkTopologyStrategy',
-            'replication_factor' : 2
-        } AND TABLETS = {'enabled' : false}
+            'replication_factor' : 1
+        }
         "#;
 
         self.session.query_unpaged(create_keyspace, &[]).await?;

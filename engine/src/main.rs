@@ -1,5 +1,5 @@
 use std::thread;
-use engine::{matching::{engine::MatchingEngine, Exchange, RegisteredSymbols}, process_order, process_user_request, TOKIO_RUNTIME};
+use engine::{connect_redis, matching::{engine::MatchingEngine, Exchange, RegisteredSymbols}, process_order, process_user_request, TOKIO_RUNTIME};
 use scylla::client::session_builder::SessionBuilder;
 use strum::IntoEnumIterator;
 
@@ -11,7 +11,7 @@ fn main() {
     let session = TOKIO_RUNTIME.block_on(
         SessionBuilder::new().known_node("127.0.0.1:9042").build()
     ).unwrap();
-    
+    let mut con = connect_redis("redis://127.0.0.1:6379");
     // matching engine init
     let mut matching_engine = MatchingEngine::init();
 

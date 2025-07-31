@@ -23,8 +23,13 @@ pub static TOKIO_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
 });
 
 pub fn connect_redis(url: &str) -> Connection {
-    let client = redis::Client::open(url).expect("Could not create client");
-    let mut connection = client.get_connection().expect("Could not connect to client");
+    let client = redis::Client::open(url).expect("Could not create Redis client");
+    let connection = client.get_connection().unwrap_or_else(|e| {
+        eprintln!("Failed to connect to Redis at {}: {}", url, e);
+        #[cfg(windows)]
+        eprintln!("On Windows, this might be a WSAStartup issue. Ensure Redis connection is initialized in main thread first.");
+        panic!("Could not connect to Redis: {}", e);
+    });
     connection
 }
 

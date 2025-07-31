@@ -47,7 +47,7 @@ pub static USERS: Lazy<Mutex<Users>> = Lazy::new(|| {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Hash, PartialEq, Eq, EnumIter, EnumStringify)]
 pub enum Asset {
-    USDC,
+    USDT,
     BTC,
     SOL,
     ETH

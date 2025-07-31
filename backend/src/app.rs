@@ -45,9 +45,14 @@ pub struct AppState {
 
 
 
-pub fn connect_redis(url:&str) -> Connection {
-    let client = redis::Client::open(url).expect("Failed to connect to redis");
-    let connection = client.get_connection().expect("Failed to connect to redis");
+pub fn connect_redis(url: &str) -> Connection {
+    let client = redis::Client::open(url).expect("Could not create Redis client");
+    let connection = client.get_connection().unwrap_or_else(|e| {
+        eprintln!("Failed to connect to Redis at {}: {}", url, e);
+        #[cfg(windows)]
+        eprintln!("On Windows, this might be a WSAStartup issue. Ensure Redis connection is initialized in main thread first.");
+        panic!("Could not connect to Redis: {}", e);
+    });
     connection
 }
 
@@ -58,8 +63,14 @@ async fn run<'a>(listener: TcpListener) -> Result<actix_web::dev::Server, std::i
 
 
     let mut redis_connection = connect_redis(&redis_uri);
-    let scylla_db = ScyllaDb::create_session(uri).await.unwrap();
-    scylla_db.initialize().await.unwrap();
+    let scylla_db = ScyllaDb::create_session(uri).await.unwrap_or_else(| e| {
+        eprintln!("Failed to connect to ScyllaDB at {}: {}", uri, e.to_string() );
+        panic!("Failed to connect to ScyllaDB: {}", e.to_string());
+    });
+    scylla_db.initialize().await.unwrap_or_else(| e| {
+        eprintln!("Failed to initialize ScyllaDB at {}: {}", uri, e.to_string() );
+        panic!("Failed to initialize ScyllaDB: {}", e.to_string());
+    });
 
 
     let app_state = web::Data::new(AppState {
