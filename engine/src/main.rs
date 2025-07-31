@@ -1,31 +1,34 @@
-use std::thread;
-use engine::{connect_redis, matching::{engine::MatchingEngine, Exchange, RegisteredSymbols}, process_order, process_user_request, TOKIO_RUNTIME};
+use engine::{
+    TOKIO_RUNTIME,
+    matching::{Exchange, RegisteredSymbols, engine::MatchingEngine},
+    process_order, process_user_request,
+};
 use scylla::client::session_builder::SessionBuilder;
+use std::thread;
 use strum::IntoEnumIterator;
-
-
-
 
 fn main() {
     // build the connection with the scylla db on same thread
-    let session = TOKIO_RUNTIME.block_on(
-        SessionBuilder::new().known_node("127.0.0.1:9042").build()
-    ).unwrap();
-    let mut con = connect_redis("redis://127.0.0.1:6379");
+    let session = TOKIO_RUNTIME
+        .block_on(SessionBuilder::new().known_node("127.0.0.1:9042").build())
+        .unwrap();
+
     // matching engine init
     let mut matching_engine = MatchingEngine::init();
 
     // block and recover orderbooks on restart
     TOKIO_RUNTIME.block_on(matching_engine.recover_all_orderbooks(&session));
-    
+
     // running each orderbooks parallelly
-    RegisteredSymbols::iter().for_each(|symbol|{
+    RegisteredSymbols::iter().for_each(|symbol| {
         let exchange = Exchange::from_str(&symbol.to_string()).unwrap();
         let orderbook = matching_engine.orderbook.get_mut(&exchange).unwrap();
         // spawn thread for each orderbook
-        thread::spawn(process_order(orderbook.clone())); 
+        thread::spawn(process_order(orderbook.clone()));
     });
 
     // process user requests
     thread::spawn(process_user_request());
+
+    loop {}
 }
