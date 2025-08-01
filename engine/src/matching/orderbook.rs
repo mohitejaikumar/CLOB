@@ -708,7 +708,7 @@ impl Limit {
                                 },
                                 RedisEmit {
                                     cmd: "LPUSH".to_string(),
-                                    arg_1: "filler".to_string(),
+                                    arg_1: "archiever".to_string(),
                                     arg_2: serialized_filler,
                                 }
                             ]
@@ -821,7 +821,7 @@ impl Limit {
                                 },
                                 RedisEmit {
                                     cmd: "LPUSH".to_string(),
-                                    arg_1: "filler".to_string(),
+                                    arg_1: "archiever".to_string(),
                                     arg_2: serialized_filler,
                                 }
                             ]

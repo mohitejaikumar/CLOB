@@ -1,6 +1,6 @@
 [workspace]
 
-members = ["archiever", "backend", "engine", "wss"]
+members = ["archiever", "backend", "engine", "loadtesting", "wss"]
 resolver = "3"
 
 [workspace.dependencies]
