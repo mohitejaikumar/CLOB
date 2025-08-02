@@ -14,7 +14,8 @@ use crate::{
         get_epoch_micros,
         schema::{Id, Order, OrderSide, OrderType, Price, Quantity, Symbol},
     },
-    routes::{CancelAll, CancelOrder, EngineRequests, OpenOrder, OpenOrders},
+    middleware::Claims,
+    routes::{CancelAll, CancelOrder, EngineRequests, OpenOrder, OpenOrders, UserId},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -23,12 +24,14 @@ pub struct OrderParams {
     order_side: OrderSide,
     order_type: OrderType,
     quantity: Quantity,
+    #[serde(skip_deserializing)]
     user_id: Id,
     symbol: Symbol,
 }
 
 #[actix_web::post("/order")]
 pub async fn execute_order(
+    claim: Claims,
     body: Json<OrderParams>,
     app_state: Data<AppState>,
 ) -> actix_web::HttpResponse {
@@ -36,9 +39,10 @@ pub async fn execute_order(
     let mut con = &mut app_state.redis_connection.lock().unwrap();
     let sub_id = uuid::Uuid::new_v4().as_u64_pair().0 as i64;
     let symbol = body.symbol.clone();
+    let user = from_str::<UserId>(&claim.sub).unwrap();
     let order = Order::new(
         sub_id,
-        body.user_id,
+        user.user_id,
         body.quantity,
         body.price,
         body.order_side.clone(),
@@ -82,6 +86,7 @@ pub async fn execute_order(
 
 #[actix_web::delete("/orders")]
 pub async fn order_cancel_all(
+    claims: Claims,
     mut body: Json<CancelAll>,
     app_state: Data<AppState>,
 ) -> HttpResponse {
@@ -89,6 +94,8 @@ pub async fn order_cancel_all(
     let mut con = &mut app_state.redis_connection.lock().unwrap();
     let sub_id = uuid::Uuid::new_v4().as_u64_pair().0 as i64;
     let symbol = body.symbol.clone();
+    let user = from_str::<UserId>(&claims.sub).unwrap();
+    body.user_id = user.user_id;
     body.sub_id = sub_id;
     body.timestamp = get_epoch_micros() as i64;
     let req = to_string(&EngineRequests::CancelAll(body.0)).unwrap();
@@ -123,12 +130,18 @@ pub async fn order_cancel_all(
 }
 
 #[actix_web::delete("/order")]
-pub async fn order_cancel(mut body: Json<CancelOrder>, app_state: Data<AppState>) -> HttpResponse {
+pub async fn order_cancel(
+    claims: Claims,
+    mut body: Json<CancelOrder>,
+    app_state: Data<AppState>,
+) -> HttpResponse {
     let total_time = Instant::now();
     let mut con = &mut app_state.redis_connection.lock().unwrap();
     let sub_id = uuid::Uuid::new_v4().as_u64_pair().0 as i64;
     let symbol = body.symbol.clone();
     let response = {
+        let user = from_str::<UserId>(&claims.sub).unwrap();
+        body.user_id = user.user_id;
         body.sub_id = sub_id;
         body.timestamp = get_epoch_micros() as i64;
         let req = to_string(&EngineRequests::CancelOrder(body.0)).unwrap();
@@ -162,12 +175,18 @@ pub async fn order_cancel(mut body: Json<CancelOrder>, app_state: Data<AppState>
 }
 
 #[actix_web::get("/order")]
-pub async fn get_open_order(mut body: Json<OpenOrder>, app_state: Data<AppState>) -> HttpResponse {
+pub async fn get_open_order(
+    claims: Claims,
+    mut body: Json<OpenOrder>,
+    app_state: Data<AppState>,
+) -> HttpResponse {
     let total_time = Instant::now();
     let mut con = &mut app_state.redis_connection.lock().unwrap();
     let sub_id = uuid::Uuid::new_v4().as_u64_pair().0 as i64;
     let symbol = body.symbol.clone();
     let response = {
+        let user = from_str::<UserId>(&claims.sub).unwrap();
+        body.user_id = user.user_id;
         body.sub_id = sub_id;
         let req = to_string(&EngineRequests::OpenOrder(body.0)).unwrap();
         let res = redis::cmd("LPUSH")
@@ -201,6 +220,7 @@ pub async fn get_open_order(mut body: Json<OpenOrder>, app_state: Data<AppState>
 
 #[actix_web::get("/orders")]
 pub async fn get_open_orders(
+    claims: Claims,
     mut body: Json<OpenOrders>,
     app_state: Data<AppState>,
 ) -> HttpResponse {
@@ -209,6 +229,8 @@ pub async fn get_open_orders(
     let sub_id = uuid::Uuid::new_v4().as_u64_pair().0 as i64;
     let symbol = body.symbol.clone();
     let response = {
+        let user = from_str::<UserId>(&claims.sub).unwrap();
+        body.user_id = user.user_id;
         body.sub_id = sub_id;
         let req = to_string(&EngineRequests::OpenOrders(body.0)).unwrap();
         let res = redis::cmd("LPUSH")

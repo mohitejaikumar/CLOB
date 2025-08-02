@@ -1,12 +1,13 @@
-use std::{collections::HashMap, time::{SystemTime, UNIX_EPOCH}};
 use rust_decimal_macros::dec;
 use serde_json::to_string;
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use crate::{matching::error::MatchingEngineErrors, EventTransmitter, RedisEmit};
+use crate::{matching::{error::MatchingEngineErrors, limit::Limit}, EventTransmitter, RedisEmit};
 
 use super::*;
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Orderbook {
@@ -16,8 +17,6 @@ pub struct Orderbook {
     pub asks: HashMap<Price, Limit>,
     pub bids: HashMap<Price, Limit>,
 }
-
-
 
 impl Orderbook {
     pub fn new(exchange: Exchange) -> Orderbook {
@@ -36,40 +35,33 @@ impl Orderbook {
         *order_id
     }
 
-    pub fn users_orders(
-        asks: &mut HashMap<Price, Limit>,
-        user_id: Id
-    ) -> Vec<(Price, &mut Order)> {
+    pub fn users_orders(asks: &mut HashMap<Price, Limit>, user_id: Id) -> Vec<(Price, &mut Order)> {
         asks.values_mut()
-            .flat_map(|limit| 
-                limit.orders.iter_mut()
-                .filter(|order | order.user_id == user_id)
-                .map(|order| (limit.price, order))
-                .collect::<Vec<(Price, &mut Order)>>()
-            ).collect::<Vec<(Price, &mut Order)>>()
+            .flat_map(|limit| {
+                limit
+                    .orders
+                    .iter_mut()
+                    .filter(|order| order.user_id == user_id)
+                    .map(|order| (limit.price, order))
+                    .collect::<Vec<(Price, &mut Order)>>()
+            })
+            .collect::<Vec<(Price, &mut Order)>>()
     }
 
-    pub fn get_open_orders(
-        &mut self,
-        user_id: Id
-    ) -> Vec<(Price, &mut Order)> {
+    pub fn get_open_orders(&mut self, user_id: Id) -> Vec<(Price, &mut Order)> {
         let mut open_orders = Orderbook::users_orders(&mut self.asks, user_id);
         open_orders.extend(Orderbook::users_orders(&mut self.bids, user_id));
         open_orders
     }
 
     // sorted from lowest to heighest
-    pub fn bid_limits(
-        bids: &mut HashMap<Price, Limit>
-    ) -> Vec<&mut Limit> {
+    pub fn bid_limits(bids: &mut HashMap<Price, Limit>) -> Vec<&mut Limit> {
         let mut bids = bids.values_mut().collect::<Vec<&mut Limit>>();
         bids.sort_by(|a, b| b.price.cmp(&a.price));
         bids
     }
 
-    pub fn ask_limits(
-        asks: &mut HashMap<Price, Limit>
-    ) -> Vec<&mut Limit> {
+    pub fn ask_limits(asks: &mut HashMap<Price, Limit>) -> Vec<&mut Limit> {
         let mut asks = asks.values_mut().collect::<Vec<&mut Limit>>();
         asks.sort_by(|a, b| a.price.cmp(&b.price));
         asks
@@ -89,11 +81,7 @@ impl Orderbook {
         return (bids, asks);
     }
 
-    pub fn add_limit_order(
-        &mut self,
-        price: Price,
-        order: Order
-    ) {
+    pub fn add_limit_order(&mut self, price: Price, order: Order) {
         let order_side = &order.order_side.clone();
         match order_side {
             OrderSide::Bid => {
@@ -125,7 +113,7 @@ impl Orderbook {
         &mut self,
         mut order: Order,
         should_execute_trade: bool,
-        event_tx: Option<EventTransmitter>
+        event_tx: Option<EventTransmitter>,
     ) -> (Decimal, Decimal, OrderStatus) {
         let sorted_orders = match order.order_side {
             OrderSide::Ask => Orderbook::bid_limits(&mut self.bids),
@@ -145,7 +133,7 @@ impl Orderbook {
                 price,
                 &mut self.trade_id,
                 should_execute_trade,
-                event_tx.clone()
+                event_tx.clone(),
             );
             let executed_quantity_limit = order.initial_quantity - order.quantity;
             executed_quantity += executed_quantity_limit;
@@ -163,7 +151,7 @@ impl Orderbook {
         price: Price,
         mut order: Order,
         should_execute_trade: bool,
-        event_tx: Option<EventTransmitter>
+        event_tx: Option<EventTransmitter>,
     ) -> (Decimal, Decimal, OrderStatus) {
         println!("Recived an {} Limit order", order.order_side);
         let mut executed_quantity = dec!(0);
@@ -188,7 +176,7 @@ impl Orderbook {
                         price,
                         &mut self.trade_id,
                         should_execute_trade,
-                        event_tx.clone() 
+                        event_tx.clone(),
                     );
                     let executed_quantity_limit = order.initial_quantity - order.quantity;
                     executed_quantity += executed_quantity_limit;
@@ -220,7 +208,7 @@ impl Orderbook {
                         price,
                         &mut self.trade_id,
                         should_execute_trade,
-                        event_tx.clone()
+                        event_tx.clone(),
                     );
                     let executed_quantity_limit = order.initial_quantity - order.quantity;
                     executed_quantity += executed_quantity_limit;
@@ -239,7 +227,7 @@ impl Orderbook {
 
     pub fn cancel_all_orders(
         &mut self,
-        user_id: Id
+        user_id: Id,
     ) -> (Vec<RecievedOrder>, HashMap<String, String>) {
         let quote = self.exchange.quote.clone();
         let base = self.exchange.base.clone();
@@ -279,10 +267,12 @@ impl Orderbook {
         self.bids
             .values_mut()
             .for_each(|limit| limit.orders.retain(|order| order.user_id != user_id));
-        let locked_balances: &HashMap<String, String> = &users.users
+        let locked_balances: &HashMap<String, String> = &users
+            .users
             .get(&user_id)
             .unwrap()
-            .locked_balance.iter()
+            .locked_balance
+            .iter()
             .map(|(asset, balance)| (asset.to_string(), balance.to_string()))
             .collect();
         (orders, locked_balances.clone())
@@ -291,7 +281,7 @@ impl Orderbook {
         &mut self,
         order_id: OrderId,
         order_side: &OrderSide,
-        price: &Price
+        price: &Price,
     ) -> Result<Order, MatchingEngineErrors> {
         match order_side {
             OrderSide::Bid => {
@@ -305,10 +295,10 @@ impl Orderbook {
                                 limit.orders.remove(index);
                                 Ok(order)
                             }
-                            None => { Err(MatchingEngineErrors::InvalidOrderId) }
+                            None => Err(MatchingEngineErrors::InvalidOrderId),
                         }
                     }
-                    None => { Err(MatchingEngineErrors::InvalidPriceLimitOrOrderSide) }
+                    None => Err(MatchingEngineErrors::InvalidPriceLimitOrOrderSide),
                 }
             }
             OrderSide::Ask => {
@@ -322,10 +312,10 @@ impl Orderbook {
                                 limit.orders.remove(index);
                                 Ok(order)
                             }
-                            None => { Err(MatchingEngineErrors::InvalidOrderId) }
+                            None => Err(MatchingEngineErrors::InvalidOrderId),
                         }
                     }
-                    None => { Err(MatchingEngineErrors::InvalidPriceLimitOrOrderSide) }
+                    None => Err(MatchingEngineErrors::InvalidPriceLimitOrOrderSide),
                 }
             }
         }
@@ -334,8 +324,8 @@ impl Orderbook {
     pub fn process_order(
         &mut self,
         recieved_order: RecievedOrder,
-        order_id: OrderId, 
-        event_tx: EventTransmitter
+        order_id: OrderId,
+        event_tx: EventTransmitter,
     ) -> (Decimal, Decimal, OrderStatus) {
         let order = Order::new(
             order_id as u64,
@@ -343,11 +333,11 @@ impl Orderbook {
             recieved_order.order_side,
             recieved_order.initial_quantity,
             recieved_order.order_type.clone(),
-            recieved_order.user_id as u64
+            recieved_order.user_id as u64,
         );
         match recieved_order.order_type {
-            // redis transmitter 
-            OrderType::Market => { self.fill_market_order(order, true, Some(event_tx)) }
+            // redis transmitter
+            OrderType::Market => self.fill_market_order(order, true, Some(event_tx)),
             OrderType::Limit => {
                 self.fill_limit_order(recieved_order.price, order, true, Some(event_tx))
             }
@@ -362,7 +352,7 @@ impl Orderbook {
     async fn recover_trade_id(&mut self, session: &Session) {
         let s = r#"
             SELECT COUNT(*) FROM keyspace_1.trade_table;
-                "#; 
+                "#;
 
         let res = session.query_unpaged(s, &[]).await.unwrap();
         let mut temp = res.into_rows_result().unwrap();
@@ -385,8 +375,7 @@ impl Orderbook {
         let current_time = get_epoch_ms() as i64;
         let since = 1000 * 60 * 60 * 24; // 24 hours in millis
         let from_time = current_time - since;
-        let canceled_order_s =
-            r#"
+        let canceled_order_s = r#"
         SELECT 
             id,
             user_id,
@@ -397,8 +386,7 @@ impl Orderbook {
         FROM keyspace_1.cancel_order_table
         WHERE timestamp > ? AND symbol = ? ALLOW FILTERING;
             "#;
-        let normal_order_s =
-            r#"
+        let normal_order_s = r#"
         SELECT 
             id,
             user_id,
@@ -420,8 +408,14 @@ impl Orderbook {
             Normal(RecievedOrder),
         }
         let symbol = &self.exchange.symbol;
-        let res = session.query_unpaged(normal_order_s, (from_time, symbol)).await.unwrap();
-        let cancel_res = session.query_unpaged(canceled_order_s, (from_time, symbol)).await.unwrap();
+        let res = session
+            .query_unpaged(normal_order_s, (from_time, symbol))
+            .await
+            .unwrap();
+        let cancel_res = session
+            .query_unpaged(canceled_order_s, (from_time, symbol))
+            .await
+            .unwrap();
         let mut temp = res.into_rows_result().unwrap();
         let mut orders = temp.rows::<ScyllaOrder>().unwrap();
         let mut temp_cancel = cancel_res.into_rows_result().unwrap();
@@ -437,7 +431,7 @@ impl Orderbook {
                 let order = order.unwrap();
                 OrderRequest::Cancel(order)
             })
-            .collect(); 
+            .collect();
         replay_orders.extend(canceled_orders);
         replay_orders.sort_by(|r1, r2| {
             let r1_timestamp = match r1 {
@@ -456,23 +450,25 @@ impl Orderbook {
                     self.cancel_order(
                         c_order.id as u64,
                         &OrderSide::from_str(&c_order.order_side).unwrap(),
-                        &Decimal::from_str(&c_order.price).unwrap()
-                    ).unwrap();
+                        &Decimal::from_str(&c_order.price).unwrap(),
+                    )
+                    .unwrap();
                     println!("Cancelled an {} Open order", c_order.order_side);
                 }
                 OrderRequest::Normal(replay_order) => {
                     let order = Order::new(
-                        replay_order.id as u64, 
+                        replay_order.id as u64,
                         replay_order.timestamp as u64,
                         replay_order.order_side,
                         replay_order.initial_quantity,
                         replay_order.order_type.clone(),
-                        replay_order.user_id as u64
+                        replay_order.user_id as u64,
                     );
                     let _ = match replay_order.order_type {
                         OrderType::Market => self.fill_market_order(order, false, None),
-                        OrderType::Limit =>
-                            self.fill_limit_order(replay_order.price, order, false, None),
+                        OrderType::Limit => {
+                            self.fill_limit_order(replay_order.price, order, false, None)
+                        }
                     };
                 }
             }
@@ -482,7 +478,7 @@ impl Orderbook {
     pub fn get_quote(
         &mut self,
         order_side: &OrderSide,
-        mut order_quantity: Quantity
+        mut order_quantity: Quantity,
     ) -> Result<Decimal, MatchingEngineErrors> {
         let sorted_orders = match order_side {
             OrderSide::Ask => Orderbook::bid_limits(&mut self.bids),
@@ -502,8 +498,6 @@ impl Orderbook {
     }
 }
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
     pub id: OrderId,
@@ -514,9 +508,8 @@ pub struct Order {
     pub order_type: OrderType,
     pub order_side: OrderSide,
     pub order_status: OrderStatus,
-    pub timestamp: u64
+    pub timestamp: u64,
 }
-
 
 impl Order {
     pub fn new(
@@ -525,7 +518,7 @@ impl Order {
         order_side: OrderSide,
         quantity: Quantity,
         order_type: OrderType,
-        user_id: Id
+        user_id: Id,
     ) -> Order {
         Order {
             id,
@@ -536,7 +529,7 @@ impl Order {
             order_type,
             order_side,
             order_status: OrderStatus::InProgress,
-            timestamp
+            timestamp,
         }
     }
 
@@ -546,332 +539,3 @@ impl Order {
 }
 
 
-
-fn get_epoch_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
-}
-
-fn get_epoch_micro() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros()
-}
-
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Limit {
-    pub price: Price,
-    pub orders: Vec<Order>
-}
-
-
-impl Limit {
-    pub fn new(price: Price) -> Limit {
-        Limit {
-            price,
-            orders: Vec::new()
-        }
-    }
-
-    pub fn add_order(&mut self, order: Order) {
-        self.orders.push(order);
-    }
-
-    fn fill_order(
-        &mut self,
-        mut order: Order,
-        exchange: &Exchange,
-        exchange_price: Price,
-        mut trade_id: &mut u64,
-        should_execute_trade: bool,
-        event_tx: Option<EventTransmitter>
-    ) -> Order {
-        // move through the orders for self.price and fill the order
-        let mut remaining_quantity = order.quantity.clone();
-        let mut i =0;
-
-        while i < self.orders.len() {
-            if remaining_quantity == dec!(0) {
-                break;
-            }
-            let limit_order = &mut self.orders[i];
-            let event_tx = event_tx.clone();
-            // now two cases if current order.quantity is less than or greater_equal to
-            match limit_order.quantity > remaining_quantity {
-                true => {
-                    println!("\tOrder matched");
-                    limit_order.quantity -= remaining_quantity;
-                    order.quantity = dec!(0);
-                    order.order_status = OrderStatus::Filled;
-                    limit_order.order_status = OrderStatus::PartiallyFilled;
-                    limit_order.filled_quote_quantity += remaining_quantity * exchange_price;
-                    if should_execute_trade == true {
-                        *trade_id += 1; // number of trades
-                        let timestamp = get_epoch_micro();
-                        // (seller, buyer)
-                        let user_ids = match order.order_side {
-                            OrderSide::Ask => (order.user_id, limit_order.user_id),
-                            OrderSide::Bid => (limit_order.user_id, order.user_id),
-                        };
-
-                        let post_users = exchange_balance(
-                            &exchange,
-                            remaining_quantity,
-                            exchange_price,
-                            user_ids.0,
-                            user_ids.1
-                        );
-
-                        let is_buyer_maker = if 
-                            order.order_type == OrderType::Market &&
-                            order.order_side == OrderSide::Bid
-                        {
-                            true
-                        } else {
-                            false
-                        };
-
-                        let trade = Filler {
-                            trade_id: *trade_id,
-                            post_users,
-                            exchange: exchange.clone(),
-                            quantity: remaining_quantity,
-                            exchange_price,
-                            is_buyer_maker,
-                            order_status: order.order_status.clone(),
-                            client_order_status: limit_order.order_status.clone(),
-                            order_id: order.id,
-                            client_order_id: limit_order.id,
-                            timestamp
-                        };
-
-                        let order_update_1 = OrderUpdate {
-                            order_id: trade.order_id,
-                            client_order_id: trade.client_order_id,
-                            executed_quantity: trade.quantity,
-                            executed_quote_quantity: trade.quantity * exchange_price,
-                            order_side: order.order_side.clone(),
-                            order_status: order.order_status.clone(),
-                            price: trade.exchange_price,
-                            symbol: trade.exchange.symbol.clone(),
-                            trade_id: trade.trade_id,
-                            trade_timestamp: timestamp,
-                            user_id: order.user_id
-                        };
-
-
-                        let order_update_2 = OrderUpdate {
-                            order_id: trade.order_id,
-                            client_order_id: trade.client_order_id,
-                            executed_quantity: trade.quantity,
-                            executed_quote_quantity: trade.exchange_price * trade.quantity,
-                            order_side: limit_order.order_side.clone(),
-                            order_status: trade.order_status.clone(),
-                            price: trade.exchange_price,
-                            symbol: trade.exchange.symbol.clone(),
-                            trade_id: trade.trade_id,
-                            trade_timestamp: timestamp,
-                            user_id: limit_order.user_id,
-                        };
-                        
-                        let publish_trade = Trade {
-                            id: trade.trade_id,
-                            is_buyer_maker: trade.is_buyer_maker,
-                            price: trade.exchange_price,
-                            quantity: trade.quantity,
-                            quote_quantity: trade.exchange_price * trade.quantity,
-                            timestamp,
-                        };
-
-                        let serialized_filler = to_string(&trade).unwrap();
-                        let serialized_order_update_1 = to_string(&order_update_1).unwrap();
-                        let serialized_order_update_2 = to_string(&order_update_2).unwrap();
-                        let serialized_publish_trade = to_string(&publish_trade).unwrap();
-
-                        // publish to redis 
-
-                        event_tx.unwrap().send(
-                            vec![
-                                RedisEmit {
-                                    cmd: "PUBLISH".to_string(),
-                                    arg_1: format!("order_update:{}", trade.exchange.symbol),
-                                    arg_2: serialized_order_update_1,
-                                },
-                                RedisEmit {
-                                    cmd: "PUBLISH".to_string(),
-                                    arg_1: format!("order_update:{}", trade.exchange.symbol),
-                                    arg_2: serialized_order_update_2,
-                                },
-
-                                RedisEmit {
-                                    cmd: "PUBLISH".to_string(),
-                                    arg_1: format!("trade:{}", trade.exchange.symbol),
-                                    arg_2: serialized_publish_trade,
-                                },
-                                RedisEmit {
-                                    cmd: "LPUSH".to_string(),
-                                    arg_1: "archiever".to_string(),
-                                    arg_2: serialized_filler,
-                                }
-                            ]
-                        );
-                    }
-                }
-                false => {
-                    println!("\tAn order was matched");
-                    let order_status = match limit_order.quantity == remaining_quantity {
-                        true => OrderStatus::Filled,
-                        false => OrderStatus::PartiallyFilled,
-                    };
-                    remaining_quantity -= limit_order.quantity;
-                    order.quantity -= limit_order.quantity;
-                    order.order_status = order_status;
-                    limit_order.order_status = OrderStatus::Filled;
-                    limit_order.filled_quote_quantity += exchange_price * limit_order.quantity;
-
-                    if should_execute_trade == true {
-                        *trade_id += 1;
-                        let timestamp = get_epoch_micro();
-                        let user_ids = match order.order_side {
-                            OrderSide::Bid => (limit_order.user_id, order.user_id),
-                            OrderSide::Ask => (order.user_id, limit_order.user_id),
-                        };
-                        let post_users = exchange_balance(
-                            &exchange,
-                            limit_order.quantity,
-                            exchange_price,
-                            user_ids.0,
-                            user_ids.1
-                        );
-                        let is_buyer_maker = if
-                            order.order_type == OrderType::Market &&
-                            order.order_side == OrderSide::Bid
-                        {
-                            true
-                        } else {
-                            false
-                        };
-                        let trade = Filler {
-                            trade_id: *trade_id,
-                            post_users,
-                            exchange: exchange.clone(),
-                            quantity: limit_order.quantity,
-                            exchange_price,
-                            is_buyer_maker,
-                            order_status: order.order_status.clone(),
-                            client_order_status: limit_order.order_status.clone(),
-                            order_id: order.id,
-                            client_order_id: limit_order.id,
-                            timestamp,
-                        };
-                        let order_update_1 = OrderUpdate {
-                            order_id: trade.order_id,
-                            client_order_id: trade.client_order_id,
-                            executed_quantity: trade.quantity,
-                            executed_quote_quantity: trade.exchange_price * trade.quantity,
-                            order_side: order.order_side.clone(),
-                            order_status: trade.order_status.clone(),
-                            price: trade.exchange_price,
-                            symbol: trade.exchange.symbol.clone(),
-                            trade_id: trade.trade_id,
-                            trade_timestamp: timestamp,
-                            user_id: order.user_id,
-                        };
-                        let order_update_2 = OrderUpdate {
-                            order_id: trade.client_order_id,
-                            client_order_id: trade.order_id,
-                            executed_quantity: trade.quantity,
-                            executed_quote_quantity: trade.exchange_price * trade.quantity,
-                            order_side: limit_order.order_side.clone(),
-                            order_status: trade.order_status.clone(),
-                            price: trade.exchange_price,
-                            symbol: trade.exchange.symbol.clone(),
-                            trade_id: trade.trade_id,
-                            trade_timestamp: timestamp,
-                            user_id: limit_order.user_id,
-                        };
-                        let publish_trade = Trade {
-                            id: trade.trade_id,
-                            is_buyer_maker: trade.is_buyer_maker,
-                            price: trade.exchange_price,
-                            quantity: trade.quantity,
-                            quote_quantity: trade.exchange_price * trade.quantity,
-                            timestamp: timestamp,
-                        };
-                        let serialized_filler = to_string(&trade).unwrap();
-                        let serialized_order_update_1 = to_string(&order_update_1).unwrap();
-                        let serialized_order_update_2 = to_string(&order_update_2).unwrap();
-                        let serialized_publish_trade = to_string(&publish_trade).unwrap();
-                        // publish to mpsc channel
-                        event_tx.unwrap().send(
-                            vec![
-                                RedisEmit {
-                                    cmd: "LPUSH".to_string(),
-                                    arg_1: format!("order_update:{}", trade.exchange.symbol),
-                                    arg_2: serialized_order_update_1,
-                                },
-                                RedisEmit {
-                                    cmd: "PUBLISH".to_string(),
-                                    arg_1: format!("order_update:{}", trade.exchange.symbol),
-                                    arg_2: serialized_order_update_2,
-                                },
-
-                                RedisEmit {
-                                    cmd: "PUBLISH".to_string(),
-                                    arg_1: format!("trade:{}", trade.exchange.symbol),
-                                    arg_2: serialized_publish_trade,
-                                },
-                                RedisEmit {
-                                    cmd: "LPUSH".to_string(),
-                                    arg_1: "archiever".to_string(),
-                                    arg_2: serialized_filler,
-                                }
-                            ]
-                        );
-                    }
-                    self.orders.remove(i);
-                    continue;
-                }
-
-            }
-            if order.is_filled() {
-                break;
-            }
-            i += 1;
-        }
-        order
-    }
-
-    fn total_volume(&self) -> Decimal {
-        self.orders
-        .iter()
-        .map(| order | order.quantity)
-        .reduce(| a, b | a + b)
-        .unwrap_or(dec!(0))
-    }
-}
-
-
-pub fn exchange_balance(
-    exchange: &Exchange,
-    quantity: Quantity,
-    exchange_price: Price,
-    user_id: Id, // seller
-    client_user_id: Id  // buyer
-) -> PostUsers {
-    // lock the users balance
-    let mut users = USERS.lock().unwrap();
-    users.unlock_amount(&exchange.base, user_id, quantity);
-    users.withdraw(&exchange.base, quantity, user_id);
-    users.deposit(&exchange.quote, quantity * exchange_price, user_id);
-
-
-    users.unlock_amount(&exchange.quote, client_user_id, quantity * exchange_price);
-    users.withdraw(&exchange.quote, quantity * exchange_price, client_user_id);
-    users.deposit(&exchange.base, quantity, client_user_id);
-
-    let user = users.users.get(&user_id).unwrap().clone();
-    let client = users.users.get(&client_user_id).unwrap().clone();
-    PostUsers {
-        client,
-        user
-    }
-}

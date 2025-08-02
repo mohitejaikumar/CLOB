@@ -1,22 +1,25 @@
-use std::{collections::HashMap, sync::Mutex, str::FromStr};
+use std::{
+    collections::HashMap,
+    str::FromStr,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use enum_stringify::EnumStringify;
 use once_cell::sync::Lazy;
 use rust_decimal::Decimal;
-use scylla::{ client::session::Session, statement::batch::Batch, DeserializeRow, SerializeRow};
+use scylla::{DeserializeRow, SerializeRow, client::session::Session, statement::batch::Batch};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 use crate::{PersistCancel, PersistCancelAll};
 
-pub mod orderbook;
 pub mod engine;
-pub mod user;
 pub mod error;
-
-
-
+pub mod limit;
+pub mod orderbook;
+pub mod user;
 
 pub type Id = u64;
 pub type Price = Decimal;
@@ -24,7 +27,6 @@ pub type Symbol = String;
 pub type OrderId = u64;
 pub type Quantity = Decimal;
 pub type TradeId = u64;
-
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct User {
@@ -44,19 +46,16 @@ pub static USERS: Lazy<Mutex<Users>> = Lazy::new(|| {
     })
 });
 
-
 #[derive(Debug, Clone, Deserialize, Serialize, Hash, PartialEq, Eq, EnumIter, EnumStringify)]
 pub enum Asset {
     USDT,
     BTC,
     SOL,
-    ETH
+    ETH,
 }
-
 
 impl Asset {
     pub fn from_str(asset_to_match: &str) -> Option<Self> {
-
         for asset in Asset::iter() {
             let current_asset = asset.to_string();
             if asset_to_match.to_string() == current_asset {
@@ -67,13 +66,11 @@ impl Asset {
     }
 }
 
-
 #[derive(Debug, Clone, Deserialize, Serialize, EnumIter, EnumStringify, PartialEq, Eq)]
 pub enum OrderType {
     Market,
-    Limit
+    Limit,
 }
-
 
 impl OrderType {
     pub fn from_str(asset_to_match: &str) -> Result<Self, ()> {
@@ -87,11 +84,10 @@ impl OrderType {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, EnumStringify, EnumIter, PartialEq, Eq)]
 pub enum OrderSide {
     Bid,
-    Ask
+    Ask,
 }
 
 impl OrderSide {
@@ -110,10 +106,8 @@ impl OrderSide {
 pub enum RegisteredSymbols {
     SOL_USDT,
     BTC_USDT,
-    ETH_USDT
+    ETH_USDT,
 }
-
-
 
 #[derive(Debug, Deserialize, Serialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaOrder {
@@ -128,7 +122,7 @@ pub struct ScyllaOrder {
     pub order_type: String,
     pub order_side: String,
     pub order_status: String,
-    pub timestamp: i64
+    pub timestamp: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, SerializeRow, DeserializeRow)]
@@ -137,7 +131,6 @@ pub struct ScyllaUser {
     pub balance: HashMap<String, String>,
     pub locked_balance: HashMap<String, String>,
 }
-
 
 #[derive(Debug, Deserialize, Serialize, SerializeRow, DeserializeRow)]
 pub struct ScyllaCancelOrder {
@@ -148,7 +141,6 @@ pub struct ScyllaCancelOrder {
     pub price: String,
     pub timestamp: i64,
 }
-
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RecievedOrder {
@@ -166,17 +158,13 @@ pub struct RecievedOrder {
     pub timestamp: i64,
 }
 
-
-
-
 #[derive(Debug, Clone, Deserialize, Serialize, EnumIter, EnumStringify)]
 pub enum OrderStatus {
     InProgress,
     Filled,
     PartiallyFilled,
-    Cancelled
+    Cancelled,
 }
-
 
 impl OrderStatus {
     pub fn from_str(status_to_match: &str) -> Result<Self, ()> {
@@ -189,7 +177,6 @@ impl OrderStatus {
         Err(())
     }
 }
-
 
 impl RecievedOrder {
     fn to_scylla_order(&self) -> ScyllaOrder {
@@ -210,7 +197,6 @@ impl RecievedOrder {
     }
 }
 
-
 impl ScyllaOrder {
     fn from_scylla_order(&self) -> RecievedOrder {
         RecievedOrder {
@@ -230,7 +216,6 @@ impl ScyllaOrder {
     }
 }
 
-
 #[derive(Debug, Clone, Deserialize, Serialize, Eq, Hash, PartialEq)]
 pub struct Exchange {
     pub base: Asset,
@@ -239,10 +224,9 @@ pub struct Exchange {
 }
 
 #[derive(Debug, Serialize)]
-pub enum SymbolError{
-    InvalidSymbol
+pub enum SymbolError {
+    InvalidSymbol,
 }
-
 
 impl Exchange {
     pub fn new(base: Asset, quote: Asset) -> Exchange {
@@ -282,7 +266,6 @@ pub struct OrderUpdate {
     executed_quote_quantity: Decimal,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trade {
     id: Id,
@@ -293,16 +276,13 @@ pub struct Trade {
     price: Price,
 }
 
-
 pub async fn new_order(
     session: &Session,
     order: RecievedOrder,
     locked_balance: Quantity,
-    lock_asset: Asset
+    lock_asset: Asset,
 ) {
-
-    let new_order =
-        r#"
+    let new_order = r#"
         INSERT INTO keyspace_1.order_table (
             id,
             user_id,
@@ -319,8 +299,7 @@ pub async fn new_order(
         )  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     "#;
 
-    let lock_balance = 
-        r#"
+    let lock_balance = r#"
         UPDATE keyspace_1.user_table
         SET
             locked_balance[?] = ?
@@ -330,17 +309,22 @@ pub async fn new_order(
     batch.append_statement(new_order);
     batch.append_statement(lock_balance);
     let prepared_batch: Batch = session.prepare_batch(&batch).await.unwrap();
-    
-    let order_value = order.to_scylla_order();
-    let user_value = (lock_asset.to_string(), locked_balance.to_string(), order.user_id as i64);
 
-    session.batch(&prepared_batch, (order_value, user_value)).await.unwrap();
+    let order_value = order.to_scylla_order();
+    let user_value = (
+        lock_asset.to_string(),
+        locked_balance.to_string(),
+        order.user_id as i64,
+    );
+
+    session
+        .batch(&prepared_batch, (order_value, user_value))
+        .await
+        .unwrap();
 }
 
-
 pub async fn persist_order_cancel_all(session: &Session, cancel_order: PersistCancelAll) {
-    let new_cance_order =
-        r#"
+    let new_cance_order = r#"
         INSERT INTO keyspace_1.cancel_order_table (
             id,
             user_id,
@@ -350,15 +334,13 @@ pub async fn persist_order_cancel_all(session: &Session, cancel_order: PersistCa
             timestamp
         ) VALUES (?, ?, ?, ?, ?, ?);
         "#;
-    let unlock_balance =
-        r#"
+    let unlock_balance = r#"
         UPDATE keyspace_1.user_table 
         SET
             locked_balance = ?
         WHERE id = ?;
         "#;
-    let update_order_status =
-        r#"
+    let update_order_status = r#"
         UPDATE keyspace_1.order_table 
         SET
             order_status = ?
@@ -366,32 +348,42 @@ pub async fn persist_order_cancel_all(session: &Session, cancel_order: PersistCa
         "#;
     for data in cancel_order.data {
         session
-            .query_unpaged(new_cance_order, (
-                data.id as i64,
-                cancel_order.user_id as i64,
-                data.order_side.to_string(),
-                cancel_order.symbol.clone(),
-                data.price.to_string(),
-                cancel_order.timestamp,
-            )).await
+            .query_unpaged(
+                new_cance_order,
+                (
+                    data.id as i64,
+                    cancel_order.user_id as i64,
+                    data.order_side.to_string(),
+                    cancel_order.symbol.clone(),
+                    data.price.to_string(),
+                    cancel_order.timestamp,
+                ),
+            )
+            .await
             .unwrap();
         session
-            .query_unpaged(update_order_status, (
-                OrderStatus::Cancelled.to_string(),
-                data.id as i64,
-                cancel_order.symbol.clone(),
-            )).await
+            .query_unpaged(
+                update_order_status,
+                (
+                    OrderStatus::Cancelled.to_string(),
+                    data.id as i64,
+                    cancel_order.symbol.clone(),
+                ),
+            )
+            .await
             .unwrap();
     }
     session
-        .query_unpaged(unlock_balance, (cancel_order.locked_balances, cancel_order.user_id as i64)).await
+        .query_unpaged(
+            unlock_balance,
+            (cancel_order.locked_balances, cancel_order.user_id as i64),
+        )
+        .await
         .unwrap();
 }
 
-
 pub async fn persist_order_cancel(session: &Session, cancel_order: PersistCancel) {
-    let new_cance_order =
-        r#"
+    let new_cance_order = r#"
         INSERT INTO keyspace_1.cancel_order_table (
             id,
             user_id,
@@ -401,15 +393,13 @@ pub async fn persist_order_cancel(session: &Session, cancel_order: PersistCancel
             timestamp
         ) VALUES (?, ?, ?, ?, ?, ?);
         "#;
-    let unlock_balance =
-        r#"
+    let unlock_balance = r#"
         UPDATE keyspace_1.user_table 
         SET
             locked_balance[?] = ?
         WHERE id = ?;
         "#;
-    let update_order_status =
-        r#"
+    let update_order_status = r#"
         UPDATE keyspace_1.order_table 
         SET
             order_status = ?
@@ -421,30 +411,33 @@ pub async fn persist_order_cancel(session: &Session, cancel_order: PersistCancel
     batch.append_statement(update_order_status);
     let prepared_batch: Batch = session.prepare_batch(&batch).await.unwrap();
     session
-        .batch(&prepared_batch, (
+        .batch(
+            &prepared_batch,
             (
-                cancel_order.id as i64,
-                cancel_order.user_id as i64,
-                cancel_order.order_side.to_string(),
-                cancel_order.symbol,
-                cancel_order.price.to_string(),
-                cancel_order.timestamp,
+                (
+                    cancel_order.id as i64,
+                    cancel_order.user_id as i64,
+                    cancel_order.order_side.to_string(),
+                    cancel_order.symbol,
+                    cancel_order.price.to_string(),
+                    cancel_order.timestamp,
+                ),
+                (
+                    cancel_order.asset.to_string(),
+                    cancel_order.updated_locked_balance.to_string(),
+                    cancel_order.user_id as i64,
+                ),
+                (OrderStatus::Cancelled.to_string(), cancel_order.id as i64),
             ),
-            (
-                cancel_order.asset.to_string(),
-                cancel_order.updated_locked_balance.to_string(),
-                cancel_order.user_id as i64,
-            ),
-            (OrderStatus::Cancelled.to_string(), cancel_order.id as i64),
-        )).await
+        )
+        .await
         .unwrap();
 }
 
-
 #[derive(Debug, Serialize)]
 pub struct PostUsers {
-    pub user: User, // buyer
-    pub client: User // seller
+    pub user: User,   // buyer
+    pub client: User, // seller
 }
 
 #[derive(Debug, Serialize)]
@@ -460,4 +453,18 @@ pub struct Filler {
     order_id: OrderId,
     client_order_id: OrderId,
     timestamp: u128,
+}
+
+pub fn get_epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+pub fn get_epoch_micro() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_micros()
 }

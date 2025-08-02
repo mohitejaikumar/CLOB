@@ -1,16 +1,19 @@
 use actix_web::{
-    App, HttpResponse,
-    web::{self, Data, Json, Query},
+    HttpResponse,
+    web::{self, Data, Json},
 };
 use redis::Value;
 use serde_json::{from_str, to_string};
 
 use crate::{
     app::AppState,
-    db::schema::{Id, User},
-    routes::{Deposit, GetUserBalances, NewUser, UserRequests, Withdraw},
+    db::schema::User,
+    middleware::{Claims, generate_jwt},
+    routes::{
+        Deposit, GetUserBalances, NewUser, UserId, UserRequests, Withdraw,
+        request_output::NewUserResponse,
+    },
 };
-use serde::{Deserialize, Serialize};
 
 #[actix_web::post("/user")]
 pub async fn new_user(app_state: web::Data<AppState>) -> HttpResponse {
@@ -37,7 +40,14 @@ pub async fn new_user(app_state: web::Data<AppState>) -> HttpResponse {
             match from_str::<User>(&response) {
                 Ok(user) => {
                     let _ = s_db.new_user(user.clone()).await;
-                    return HttpResponse::Created().json(user);
+
+                    match generate_jwt(user.id) {
+                        Ok(token) => HttpResponse::Created().json(NewUserResponse {
+                            user: user,
+                            token: token,
+                        }),
+                        Err(err) => HttpResponse::InternalServerError().json(err.to_string()),
+                    }
                 }
                 Err(err) => HttpResponse::InternalServerError().json(err.to_string()),
             }
@@ -47,15 +57,16 @@ pub async fn new_user(app_state: web::Data<AppState>) -> HttpResponse {
 }
 
 #[actix_web::get("")]
-async fn get_user(
-    mut query: Query<GetUserBalances>,
-    app_state: Data<AppState>,
-) -> actix_web::HttpResponse {
+pub async fn get_user(claims: Claims, app_state: Data<AppState>) -> actix_web::HttpResponse {
     // lock the redis connection
     let mut con = &mut app_state.redis_connection.lock().unwrap();
     let sub_id = uuid::Uuid::new_v4().as_u64_pair().0 as i64;
-    query.sub_id = sub_id;
-    let req = to_string(&UserRequests::GetUserBalances(query.0)).unwrap();
+    let user = from_str::<UserId>(&claims.sub).unwrap();
+    let query = GetUserBalances {
+        user_id: user.user_id,
+        sub_id: sub_id,
+    };
+    let req = to_string(&UserRequests::GetUserBalances(query)).unwrap();
     let response = redis::cmd("LPUSH")
         .arg("queues:user")
         .arg(req)
@@ -76,7 +87,7 @@ async fn get_user(
                 Ok(user) => {
                     return HttpResponse::Created().json(user);
                 }
-                Err(err) => HttpResponse::BadRequest().json(err.to_string() + "ioioefo"),
+                Err(err) => HttpResponse::BadRequest().json(err.to_string()),
             }
         }
         Err(err) => HttpResponse::InternalServerError().json(err.to_string()),
@@ -85,12 +96,15 @@ async fn get_user(
 
 #[actix_web::post("/deposit")]
 pub async fn deposit(
+    claims: Claims,
     mut body: Json<Deposit>,
     app_state: Data<AppState>,
 ) -> actix_web::HttpResponse {
     let s_db = app_state.scylla_db.lock().unwrap();
     let con = &mut app_state.redis_connection.lock().unwrap();
     let sub_id = uuid::Uuid::new_v4().as_u64_pair().0 as i64;
+    let user = from_str::<UserId>(&claims.sub).unwrap();
+    body.user_id = user.user_id;
     body.sub_id = sub_id;
     let req = to_string(&UserRequests::Deposit(body.0)).unwrap();
     let response = redis::cmd("LPUSH")
@@ -122,12 +136,15 @@ pub async fn deposit(
 
 #[actix_web::post("/withdraw")]
 pub async fn withdraw(
+    claims: Claims,
     mut body: Json<Withdraw>,
     app_state: Data<AppState>,
 ) -> actix_web::HttpResponse {
     let s_db = app_state.scylla_db.lock().unwrap();
     let con = &mut app_state.redis_connection.lock().unwrap();
     let sub_id = uuid::Uuid::new_v4().as_u64_pair().0 as i64;
+    let user = from_str::<UserId>(&claims.sub).unwrap();
+    body.user_id = user.user_id;
     body.sub_id = sub_id;
     let req = to_string(&UserRequests::Withdraw(body.0)).unwrap();
     let response = redis::cmd("LPUSH")
@@ -158,18 +175,11 @@ pub async fn withdraw(
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct UserOrders {
-    pub user_id: Id,
-}
-
 #[actix_web::get("/history/orders")]
-pub async fn order_history(
-    query: Query<UserOrders>,
-    app_state: Data<AppState>,
-) -> actix_web::HttpResponse {
+pub async fn order_history(claims: Claims, app_state: Data<AppState>) -> actix_web::HttpResponse {
     let s_db = app_state.scylla_db.lock().unwrap();
-    let result = s_db.get_user(query.user_id).await;
+    let user = from_str::<UserId>(&claims.sub).unwrap();
+    let result = s_db.get_user(user.user_id).await;
     match result {
         Ok(user) => {
             let user_orders = s_db.get_users_orders(user.id).await;
