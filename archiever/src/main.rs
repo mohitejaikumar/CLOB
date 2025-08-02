@@ -5,11 +5,6 @@ use redis::{Connection, Value};
 use scylla::response::query_result;
 use serde_json::from_str;
 
-
-
-
-
-
 #[tokio::main]
 async fn main() {
     let uri = "127.0.0.1";
@@ -26,29 +21,37 @@ async fn main() {
         match result {
             Ok(query_trading_string) => {
                 let queue_trade: RedisEvent = from_str(&query_trading_string).unwrap();
+                println!("{:?}", queue_trade);
                 let start = Instant::now();
                 let result = scylla_db.batch_update(queue_trade).await;
                 match result {
                     Ok(trade) => {
-                        println!("Order updated for trade id : {} in {} ms", trade.id, start.elapsed().as_millis());
+                        println!(
+                            "Order updated for trade id : {} in {} ms",
+                            trade.id,
+                            start.elapsed().as_millis()
+                        );
                     }
                     Err(err) => {
                         eprintln!("{}", err);
                         tokio::time::sleep(Duration::from_secs(1)).await;
-                        redis::cmd("RPUSH").arg("archiever").arg(query_trading_string).query::<Value>(con).unwrap();
+                        redis::cmd("RPUSH")
+                            .arg("archiever")
+                            .arg(query_trading_string)
+                            .query::<Value>(con)
+                            .unwrap();
                     }
                 }
             }
-            Err(_) => {
-            }
+            Err(_) => {}
         }
     }
-
 }
-
 
 fn connect_redis(url: &str) -> Connection {
     let client = redis::Client::open(url).expect("Failed to connect to redis");
-    let con = client.get_connection().expect("Could not connect to the client");
+    let con = client
+        .get_connection()
+        .expect("Could not connect to the client");
     con
 }

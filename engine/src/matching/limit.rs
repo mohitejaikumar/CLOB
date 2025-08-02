@@ -3,17 +3,13 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json::to_string;
 
-use crate::{matching::{get_epoch_micro, orderbook::Order, Exchange, Filler, Id, OrderSide, OrderStatus, OrderType, OrderUpdate, PostUsers, Price, Quantity, Trade, USERS}, EventTransmitter, RedisEmit};
-
-
-
-
-
-
-
-
-
-
+use crate::{
+    EventTransmitter, RedisEmit,
+    matching::{
+        Exchange, Filler, Id, OrderSide, OrderStatus, OrderType, OrderUpdate, PostUsers, Price,
+        Quantity, Trade, USERS, get_epoch_micro, orderbook::Order,
+    },
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Limit {
@@ -144,7 +140,7 @@ impl Limit {
 
                         // publish to redis
 
-                        event_tx.unwrap().send(vec![
+                        let _ = event_tx.unwrap().send(vec![
                             RedisEmit {
                                 cmd: "PUBLISH".to_string(),
                                 arg_1: format!("order_update:{}", trade.exchange.symbol),
@@ -253,7 +249,7 @@ impl Limit {
                         let serialized_order_update_2 = to_string(&order_update_2).unwrap();
                         let serialized_publish_trade = to_string(&publish_trade).unwrap();
                         // publish to mpsc channel
-                        event_tx.unwrap().send(vec![
+                        let _ = event_tx.unwrap().send(vec![
                             RedisEmit {
                                 cmd: "LPUSH".to_string(),
                                 arg_1: format!("order_update:{}", trade.exchange.symbol),
@@ -307,12 +303,12 @@ pub fn exchange_balance(
     // lock the users balance
     let mut users = USERS.lock().unwrap();
     users.unlock_amount(&exchange.base, user_id, quantity);
-    users.withdraw(&exchange.base, quantity, user_id);
-    users.deposit(&exchange.quote, quantity * exchange_price, user_id);
+    let _ = users.withdraw(&exchange.base, quantity, user_id);
+    let _ = users.deposit(&exchange.quote, quantity * exchange_price, user_id);
 
     users.unlock_amount(&exchange.quote, client_user_id, quantity * exchange_price);
-    users.withdraw(&exchange.quote, quantity * exchange_price, client_user_id);
-    users.deposit(&exchange.base, quantity, client_user_id);
+    let _ = users.withdraw(&exchange.quote, quantity * exchange_price, client_user_id);
+    let _ = users.deposit(&exchange.base, quantity, client_user_id);
 
     let user = users.users.get(&user_id).unwrap().clone();
     let client = users.users.get(&client_user_id).unwrap().clone();

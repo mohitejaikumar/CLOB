@@ -5,12 +5,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::to_string;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{matching::{error::MatchingEngineErrors, orderbook::Orderbook, Exchange, Id, OrderId, OrderSide, OrderStatus, OrderType, Price, RecievedOrder, Symbol, USERS}, EventTransmitter, OrderCancelInfo, PersistCancel, PersistCancelAll, PersistOrderRequest, SaveOrder};
-
-
-
-
-
+use crate::{
+    EventTransmitter, OrderCancelInfo, PersistCancel, PersistCancelAll, PersistOrderRequest,
+    SaveOrder,
+    matching::{
+        Exchange, Id, OrderId, OrderSide, OrderStatus, OrderType, Price, RecievedOrder, Symbol,
+        USERS, error::MatchingEngineErrors, orderbook::Orderbook,
+    },
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum EngineRequests {
@@ -20,7 +22,6 @@ pub enum EngineRequests {
     OpenOrders(OpenOrders),
     OpenOrder(OpenOrder),
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CancelOrder {
@@ -32,7 +33,6 @@ pub struct CancelOrder {
     sub_id: i64,
     pub timestamp: i64,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CancelAll {
@@ -57,40 +57,35 @@ pub struct OpenOrder {
     sub_id: i64,
 }
 
-
 impl EngineRequests {
-
     pub fn execute_order(
         start: Instant,
         mut recieved_order: RecievedOrder,
         orderbook: &mut Orderbook,
         con: &mut Connection,
         tx: UnboundedSender<PersistOrderRequest>,
-        event_tx: EventTransmitter
+        event_tx: EventTransmitter,
     ) {
         println!("Recieved Order");
         let sub_id = recieved_order.id;
         let exchange = Exchange::from_str(&recieved_order.symbol.to_string()).unwrap();
-        // lock the assets 
+        // lock the assets
         let (asset, locked_balance) = match recieved_order.order_type {
             OrderType::Market => {
-                let quote = orderbook.get_quote(
-                    &recieved_order.order_side,
-                    recieved_order.initial_quantity
-                );
+                let quote = orderbook
+                    .get_quote(&recieved_order.order_side, recieved_order.initial_quantity);
                 let mut users = USERS.lock().unwrap();
                 let result = users.validate_and_lock_market(
                     quote,
                     &recieved_order.order_side,
                     &exchange,
                     recieved_order.user_id as u64,
-                    recieved_order.initial_quantity
+                    recieved_order.initial_quantity,
                 );
                 match result {
-                    Ok(val) => { val }
+                    Ok(val) => val,
                     Err(err) => {
-                        redis
-                            ::cmd("LPUSH")
+                        redis::cmd("LPUSH")
                             .arg(sub_id)
                             .arg(err.to_string())
                             .query::<Value>(con)
@@ -106,13 +101,12 @@ impl EngineRequests {
                     &exchange,
                     recieved_order.user_id as u64,
                     recieved_order.price,
-                    recieved_order.initial_quantity
+                    recieved_order.initial_quantity,
                 );
                 match result {
-                    Ok(val) => { val }
+                    Ok(val) => val,
                     Err(err) => {
-                        redis
-                            ::cmd("LPUSH")
+                        redis::cmd("LPUSH")
                             .arg(sub_id)
                             .arg(err.to_string())
                             .query::<Value>(con)
@@ -125,20 +119,15 @@ impl EngineRequests {
 
         let order_id = orderbook.increment_order_id();
         recieved_order.id = order_id as i64;
-        // relay message to workers for db updates 
-        tx.send(
-            PersistOrderRequest::Save(SaveOrder {
-                locked_balance,
-                asset,
-                recieved_order: recieved_order.clone(),
-            })
-        );
-        // process the orders 
-        let (filled_quantity, filled_quote_quantity, order_status) = orderbook.process_order(
-            recieved_order.clone(),
-            order_id,
-            event_tx
-        ); 
+        // relay message to workers for db updates
+        let _ = tx.send(PersistOrderRequest::Save(SaveOrder {
+            locked_balance,
+            asset,
+            recieved_order: recieved_order.clone(),
+        }));
+        // process the orders
+        let (filled_quantity, filled_quote_quantity, order_status) =
+            orderbook.process_order(recieved_order.clone(), order_id, event_tx);
         let response = RecievedOrder {
             id: order_id as i64,
             filled_quantity,
@@ -154,9 +143,8 @@ impl EngineRequests {
             timestamp: recieved_order.timestamp,
         };
         println!("Processed order in {} ms", start.elapsed().as_millis());
-        // relay the message to backend api 
-        redis
-            ::cmd("LPUSH")
+        // relay the message to backend api
+        redis::cmd("LPUSH")
             .arg(sub_id)
             .arg(to_string(&response).unwrap())
             .query::<Value>(con)
@@ -168,17 +156,17 @@ impl EngineRequests {
         cancel_order: CancelOrder,
         orderbook: &mut Orderbook,
         con: &mut Connection,
-        tx: UnboundedSender<PersistOrderRequest>
+        tx: UnboundedSender<PersistOrderRequest>,
     ) {
         let asset = match cancel_order.order_side {
-            OrderSide::Bid => { orderbook.exchange.quote.clone() }
-            OrderSide::Ask => { orderbook.exchange.base.clone() }
+            OrderSide::Bid => orderbook.exchange.quote.clone(),
+            OrderSide::Ask => orderbook.exchange.base.clone(),
         };
         // cancel the orders
         let result = orderbook.cancel_order(
             cancel_order.id,
             &cancel_order.order_side,
-            &cancel_order.price
+            &cancel_order.price,
         );
         println!("Canceled order in {}ms", start.elapsed().as_millis());
         // unlock the assets and drop the users
@@ -192,25 +180,23 @@ impl EngineRequests {
                 };
                 let updated_locked_balance = *users
                     .unlock_amount(&asset, order.user_id, quantity)
-                    .locked_balance.get(&asset)
+                    .locked_balance
+                    .get(&asset)
                     .unwrap();
                 drop(users);
                 // relay message to database
-                tx.send(
-                    PersistOrderRequest::Cancel(PersistCancel {
-                        id: cancel_order.id,
-                        order_side: cancel_order.order_side,
-                        price: cancel_order.price,
-                        symbol: cancel_order.symbol.clone(),
-                        timestamp: cancel_order.timestamp,
-                        updated_locked_balance,
-                        asset,
-                        user_id: cancel_order.user_id,
-                    })
-                );
+                let _ = tx.send(PersistOrderRequest::Cancel(PersistCancel {
+                    id: cancel_order.id,
+                    order_side: cancel_order.order_side,
+                    price: cancel_order.price,
+                    symbol: cancel_order.symbol.clone(),
+                    timestamp: cancel_order.timestamp,
+                    updated_locked_balance,
+                    asset,
+                    user_id: cancel_order.user_id,
+                }));
                 // relay to websockets
-                redis
-                    ::cmd("LPUSH")
+                redis::cmd("LPUSH")
                     .arg(sub_id)
                     .arg(
                         to_string(
@@ -227,15 +213,15 @@ impl EngineRequests {
                                 symbol: cancel_order.symbol,
                                 timestamp: order.timestamp as i64,
                                 user_id: order.user_id as i64,
-                            })
-                        ).unwrap()
+                            }),
+                        )
+                        .unwrap(),
                     )
                     .query::<Value>(con)
                     .unwrap();
             }
             Err(err) => {
-                redis
-                    ::cmd("LPUSH")
+                redis::cmd("LPUSH")
                     .arg(cancel_order.sub_id)
                     .arg(err.to_string())
                     .query::<Value>(con)
@@ -249,34 +235,31 @@ impl EngineRequests {
         cancel_all: CancelAll,
         orderbook: &mut Orderbook,
         con: &mut Connection,
-        tx: UnboundedSender<PersistOrderRequest>
+        tx: UnboundedSender<PersistOrderRequest>,
     ) {
         // cancel all the orders of user_id
         let (orders, locked_balances) = orderbook.cancel_all_orders(cancel_all.user_id);
         println!("Canceled all order in {}ms", start.elapsed().as_millis());
         if orders.len() != 0 {
             // relay message to database
-            tx.send(
-                PersistOrderRequest::CancelAll(PersistCancelAll {
-                    locked_balances,
-                    symbol: cancel_all.symbol,
-                    timestamp: cancel_all.timestamp,
-                    user_id: cancel_all.user_id as i64,
-                    data: orders
-                        .iter()
-                        .map(|o| OrderCancelInfo {
-                            id: o.id,
-                            order_side: o.order_side.clone(),
-                            price: o.price,
-                        })
-                        .collect(),
-                })
-            );
+            let _ = tx.send(PersistOrderRequest::CancelAll(PersistCancelAll {
+                locked_balances,
+                symbol: cancel_all.symbol,
+                timestamp: cancel_all.timestamp,
+                user_id: cancel_all.user_id as i64,
+                data: orders
+                    .iter()
+                    .map(|o| OrderCancelInfo {
+                        id: o.id,
+                        order_side: o.order_side.clone(),
+                        price: o.price,
+                    })
+                    .collect(),
+            }));
         }
         println!("Canceled all orders in {}ms", start.elapsed().as_millis());
         // relay to websockets
-        redis
-            ::cmd("LPUSH")
+        redis::cmd("LPUSH")
             .arg(cancel_all.sub_id)
             .arg(to_string(&orders).unwrap())
             .query::<Value>(con)
@@ -287,15 +270,14 @@ impl EngineRequests {
         start: Instant,
         o_order: OpenOrder,
         orderbook: &mut Orderbook,
-        con: &mut Connection
+        con: &mut Connection,
     ) {
         // get the open orders of user_id
         let open_orders = orderbook.get_open_orders(o_order.user_id);
         let order = open_orders.iter().find(|(_, o)| o.id == o_order.order_id);
         match order {
             Some((price, order)) => {
-                redis
-                    ::cmd("LPUSH")
+                redis::cmd("LPUSH")
                     .arg(o_order.sub_id)
                     .arg(
                         to_string(
@@ -312,15 +294,15 @@ impl EngineRequests {
                                 symbol: o_order.symbol,
                                 timestamp: order.timestamp as i64,
                                 user_id: order.user_id as i64,
-                            })
-                        ).unwrap()
+                            }),
+                        )
+                        .unwrap(),
                     )
                     .query::<Value>(con)
                     .unwrap();
             }
             None => {
-                redis
-                    ::cmd("LPUSH")
+                redis::cmd("LPUSH")
                     .arg(o_order.sub_id)
                     .arg(MatchingEngineErrors::InvalidOrderId.to_string())
                     .query::<Value>(con)
@@ -333,30 +315,27 @@ impl EngineRequests {
         start: Instant,
         open_orders: OpenOrders,
         orderbook: &mut Orderbook,
-        con: &mut Connection
+        con: &mut Connection,
     ) {
         let mut get_open_orders: Vec<RecievedOrder> = orderbook
             .get_open_orders(open_orders.user_id)
             .iter()
-            .map(|(price, order)| {
-                RecievedOrder {
-                    id: order.id as i64,
-                    filled_quantity: order.initial_quantity - order.quantity,
-                    initial_quantity: order.initial_quantity,
-                    order_side: order.order_side.clone(),
-                    order_type: order.order_type.clone(),
-                    order_status: order.order_status.clone(),
-                    price: *price,
-                    quote_quantity: price * order.initial_quantity,
-                    symbol: open_orders.symbol.clone(),
-                    timestamp: order.timestamp as i64,
-                    user_id: order.user_id as i64,
-                    filled_quote_quantity: order.filled_quote_quantity,
-                }
+            .map(|(price, order)| RecievedOrder {
+                id: order.id as i64,
+                filled_quantity: order.initial_quantity - order.quantity,
+                initial_quantity: order.initial_quantity,
+                order_side: order.order_side.clone(),
+                order_type: order.order_type.clone(),
+                order_status: order.order_status.clone(),
+                price: *price,
+                quote_quantity: price * order.initial_quantity,
+                symbol: open_orders.symbol.clone(),
+                timestamp: order.timestamp as i64,
+                user_id: order.user_id as i64,
+                filled_quote_quantity: order.filled_quote_quantity,
             })
             .collect();
-        redis
-            ::cmd("LPUSH")
+        redis::cmd("LPUSH")
             .arg(open_orders.sub_id)
             .arg(to_string(&get_open_orders).unwrap())
             .query::<Value>(con)
